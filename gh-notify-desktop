@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Responsibly check for new GitHub notifications
+# Responsibly check for new GitHub notifications and notify the desktop
 # https://docs.github.com/en/rest/activity/notifications?apiVersion=2022-11-28
 
 EXTENSION_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
@@ -8,92 +8,101 @@ DATA_DIR="${GH_ND_DATA_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/gh-notify-desk
 
 mkdir -p "$DATA_DIR"
 
-now="$(date +'%s')"
-last_checked="$(cat "$DATA_DIR/last-checked" 2>/dev/null)"
+check_poll_interval() {
+    now="$(date +'%s')"
+    last_checked="$(cat "$DATA_DIR/last-checked" 2>/dev/null)"
 
-if [ -n "$last_checked" ]; then
-    time_since_last_check=$((now - last_checked))
-    poll_interval="$(cat "$DATA_DIR/poll-interval" 2>/dev/null)"
+    if [ -n "$last_checked" ]; then
+        time_since_last_check=$((now - last_checked))
+        poll_interval="$(cat "$DATA_DIR/poll-interval" 2>/dev/null)"
 
-    if [ -n "$poll_interval" ]; then
-        remaining_poll_wait=$((poll_interval - time_since_last_check))
+        if [ -n "$poll_interval" ]; then
+            remaining_poll_wait=$((poll_interval - time_since_last_check))
 
-        if [ "$remaining_poll_wait" -gt 0 ]; then
-            echo "Please wait $remaining_poll_wait seconds before checking for GitHub notifications again" >&2
-            exit 3
+            if [ "$remaining_poll_wait" -gt 0 ]; then
+                echo "Please wait $remaining_poll_wait seconds before checking for GitHub notifications again" >&2
+                exit 3
+            fi
         fi
     fi
-fi
 
-echo "$now" >"$DATA_DIR/last-checked"
+    echo "$now" >"$DATA_DIR/last-checked"
+}
 
-headers="$(
-    curl -I --silent --url https://api.github.com/notifications \
-        --header "Authorization: Bearer $(gh auth token)" \
-        --header "X-GitHub-Api-Version: 2022-11-28" \
-        --header "If-Modified-Since: $(
-            cat "$DATA_DIR/last-modified" 2>/dev/null
-        )"
-)"
+check_response_headers() {
+    headers="$(
+        curl -I --silent --url https://api.github.com/notifications \
+            --header "Authorization: Bearer $(gh auth token)" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            --header "If-Modified-Since: $(
+                cat "$DATA_DIR/last-modified" 2>/dev/null
+            )"
+    )"
 
-status_code="$(head -n1 <<<"$headers" | cut -d ' ' -f2)"
-last_modified="$(grep last-modified <<<"$headers" | awk -F ': ' '{print $2}')"
-poll_interval="$(
-    grep x-poll-interval <<<"$headers" | awk -F ': ' '{print $2}' | tr -dc '[:digit:]'
-)"
+    status_code="$(head -n1 <<<"$headers" | cut -d ' ' -f2)"
+    last_modified="$(grep last-modified <<<"$headers" | awk -F ': ' '{print $2}')"
+    poll_interval="$(
+        grep x-poll-interval <<<"$headers" | awk -F ': ' '{print $2}' | tr -dc '[:digit:]'
+    )"
 
-if [ -n "$last_modified" ]; then
-    echo "$last_modified" >"$DATA_DIR/last-modified"
-fi
+    if [ -n "$last_modified" ]; then
+        echo "$last_modified" >"$DATA_DIR/last-modified"
+    fi
 
-if [ -n "$poll_interval" ]; then
-    echo "$poll_interval" >"$DATA_DIR/poll-interval"
-fi
+    if [ -n "$poll_interval" ]; then
+        echo "$poll_interval" >"$DATA_DIR/poll-interval"
+    fi
 
-if [ "$status_code" = "200" ]; then
-    echo "There are new GitHub notifications" >&2
-elif [ "$status_code" = "304" ]; then
-    echo "Up to date on GitHub notifications" >&2
-    exit 2
-else
-    echo "GitHub responded with status code $status_code" >&2
-    exit 1
-fi
+    if [ "$status_code" = "200" ]; then
+        echo "There are new GitHub notifications" >&2
+        # don't create a desktop notification if the io streams are a tty
+        if [ -t 0 ] && [ -t 1 ]; then
+            exit 0
+        fi
+    elif [ "$status_code" = "304" ]; then
+        echo "Up to date on GitHub notifications" >&2
+        exit 2
+    else
+        echo "GitHub responded with status code $status_code" >&2
+        exit 1
+    fi
+}
 
-# don't create a desktop notification if the io streams are a tty
-if [ -t 0 ] && [ -t 1 ]; then
-    exit 0
-fi
+notify_with_dunst() {
+    # Add dunstify action to open if the gh-notify extension is installed
+    # and if the TERMINAL environment variable is set to a supported emulator
+    # https://github.com/meiji163/gh-notify
+    if gh extension list | grep -q 'gh notify' 2>/dev/null &&
+        [[ "$TERMINAL" =~ ^(x-terminal-emulator|xterm|wezterm|kitty|alacritty|gnome-terminal|konsole|foot|eterm|st)$ ]]; then
+        cli_action="cli,open in gh-notify"
+    fi
 
-# Add dunstify action to open if the gh-notify extension is installed
-# and if the TERMINAL environment variable is set to a supported emulator
-# https://github.com/meiji163/gh-notify
-if gh extension list | grep -q 'gh notify' 2>/dev/null &&
-    [[ "$TERMINAL" =~ ^(x-terminal-emulator|xterm|wezterm|kitty|alacritty|gnome-terminal|konsole|foot|eterm|st)$ ]]; then
-    cli_action="cli,open in gh-notify"
-fi
+    if [ -n "$GH_BROWSER" ] || [ -n "$BROWSER" ]; then
+        web_action="web,open in browser"
+    fi
 
-if [ -n "$GH_BROWSER" ] || [ -n "$BROWSER" ]; then
-    web_action="web,open in browser"
-fi
+    # https://github.com/logos
+    if [ -f "$GH_ND_ICON" ]; then
+        github_icon="$GH_ND_ICON"
+    elif [ "$GH_ND_ICON" = "dark" ] && [ -f "$EXTENSION_DIR/img/github-mark.svg" ]; then
+        github_icon="$EXTENSION_DIR/img/github-mark.svg"
+    elif [ -f "$EXTENSION_DIR/img/github-mark-white.svg" ]; then
+        github_icon="$EXTENSION_DIR/img/github-mark-white.svg"
+    fi
 
-# https://github.com/logos
-if [ -f "$GH_ND_ICON" ]; then
-    github_icon="$GH_ND_ICON"
-elif [ "$GH_ND_ICON" = "dark" ] && [ -f "$EXTENSION_DIR/img/github-mark.svg" ]; then
-    github_icon="$EXTENSION_DIR/img/github-mark.svg"
-elif [ -f "$EXTENSION_DIR/img/github-mark-white.svg" ]; then
-    github_icon="$EXTENSION_DIR/img/github-mark-white.svg"
-fi
+    action_response=$(
+        dunstify "GitHub" "new notification(s)" -a "gh-notify-desktop" \
+            ${github_icon:+-i "$github_icon"} \
+            ${web_action:+-A "$web_action"} \
+            ${cli_action:+-A "$cli_action"}
+    )
 
-action_response=$(
-    dunstify "GitHub" "new notification(s)" -a "gh-notify-desktop" \
-        ${github_icon:+-i "$github_icon"} \
-        ${web_action:+-A "$web_action"} \
-        ${cli_action:+-A "$cli_action"}
-)
+    case "$action_response" in
+        web) ${GH_BROWSER:-$BROWSER} https://github.com/notifications?query=is%3Aunread ;;
+        cli) $TERMINAL -e sh -c "gh notify" ;;
+    esac
+}
 
-case "$action_response" in
-    web) ${GH_BROWSER:-$BROWSER} https://github.com/notifications?query=is%3Aunread ;;
-    cli) $TERMINAL -e sh -c "gh notify" ;;
-esac
+check_poll_interval
+check_response_headers
+notify_with_dunst
