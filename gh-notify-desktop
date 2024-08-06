@@ -55,10 +55,10 @@ check_response_headers() {
 
     if [ "$status_code" = "200" ]; then
         echo "There are new GitHub notifications" >&2
-        # don't create a desktop notification if the io streams are a tty
-        if [ -t 0 ] && [ -t 1 ]; then
-            exit 0
-        fi
+        # # don't create a desktop notification if the io streams are a tty
+        # if [ -t 0 ] && [ -t 1 ]; then
+        #     exit 0
+        # fi
     elif [ "$status_code" = "304" ]; then
         echo "Up to date on GitHub notifications" >&2
         exit 2
