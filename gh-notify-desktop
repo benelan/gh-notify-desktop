@@ -3,15 +3,17 @@
 # Responsibly check for new GitHub notifications
 # https://docs.github.com/en/rest/activity/notifications?apiVersion=2022-11-28
 
-GH_ND_DATA_DIR="${GH_ND_DATA_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/gh-notify-desktop}"
-mkdir -p "$GH_ND_DATA_DIR"
+EXTENSION_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
+DATA_DIR="${GH_ND_DATA_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/gh-notify-desktop}"
+
+mkdir -p "$DATA_DIR"
 
 now="$(date +'%s')"
-last_checked="$(cat "$GH_ND_DATA_DIR/last-checked" 2>/dev/null)"
+last_checked="$(cat "$DATA_DIR/last-checked" 2>/dev/null)"
 
 if [ -n "$last_checked" ]; then
     time_since_last_check=$((now - last_checked))
-    poll_interval="$(cat "$GH_ND_DATA_DIR/poll-interval" 2>/dev/null)"
+    poll_interval="$(cat "$DATA_DIR/poll-interval" 2>/dev/null)"
 
     if [ -n "$poll_interval" ]; then
         remaining_poll_wait=$((poll_interval - time_since_last_check))
@@ -23,14 +25,14 @@ if [ -n "$last_checked" ]; then
     fi
 fi
 
-echo "$now" >"$GH_ND_DATA_DIR/last-checked"
+echo "$now" >"$DATA_DIR/last-checked"
 
 headers="$(
     curl -I --silent --url https://api.github.com/notifications \
         --header "Authorization: Bearer $(gh auth token)" \
         --header "X-GitHub-Api-Version: 2022-11-28" \
         --header "If-Modified-Since: $(
-            cat "$GH_ND_DATA_DIR/last-modified" 2>/dev/null
+            cat "$DATA_DIR/last-modified" 2>/dev/null
         )"
 )"
 
@@ -40,11 +42,13 @@ poll_interval="$(
     grep x-poll-interval <<<"$headers" | awk -F ': ' '{print $2}' | tr -dc '[:digit:]'
 )"
 
-[ -n "$last_modified" ] &&
-    echo "$last_modified" >"$GH_ND_DATA_DIR/last-modified"
+if [ -n "$last_modified" ]; then
+    echo "$last_modified" >"$DATA_DIR/last-modified"
+fi
 
-[ -n "$poll_interval" ] &&
-    echo "$poll_interval" >"$GH_ND_DATA_DIR/poll-interval"
+if [ -n "$poll_interval" ]; then
+    echo "$poll_interval" >"$DATA_DIR/poll-interval"
+fi
 
 if [ "$status_code" = "200" ]; then
     echo "There are new GitHub notifications" >&2
@@ -52,7 +56,7 @@ elif [ "$status_code" = "304" ]; then
     echo "Up to date on GitHub notifications" >&2
     exit 2
 else
-    echo "Uh oh, GitHub responded with status code $status_code" >&2
+    echo "GitHub responded with status code $status_code" >&2
     exit 1
 fi
 
@@ -73,14 +77,23 @@ if [ -n "$GH_BROWSER" ] || [ -n "$BROWSER" ]; then
     web_action="web,open in browser"
 fi
 
+# https://github.com/logos
+if [ -f "$GH_ND_ICON" ]; then
+    github_icon="$GH_ND_ICON"
+elif [ "$GH_ND_ICON" = "dark" ] && [ -f "$EXTENSION_DIR/img/github-mark.svg" ]; then
+    github_icon="$EXTENSION_DIR/img/github-mark.svg"
+elif [ -f "$EXTENSION_DIR/img/github-mark-white.svg" ]; then
+    github_icon="$EXTENSION_DIR/img/github-mark-white.svg"
+fi
+
 action_response=$(
     dunstify "GitHub" "new notification(s)" -a "gh-notify-desktop" \
-        ${GH_ND_ICON:+-i "$GH_ND_ICON"} \
+        ${github_icon:+-i "$github_icon"} \
         ${web_action:+-A "$web_action"} \
         ${cli_action:+-A "$cli_action"}
 )
 
-case $action_response in
+case "$action_response" in
     web) ${GH_BROWSER:-$BROWSER} https://github.com/notifications?query=is%3Aunread ;;
     cli) $TERMINAL -e sh -c "gh notify" ;;
 esac
