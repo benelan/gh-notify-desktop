@@ -3,15 +3,15 @@
 # Responsibly check for new GitHub notifications
 # https://docs.github.com/en/rest/activity/notifications?apiVersion=2022-11-28
 
-data_dir="${GH_FZF_DATA_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/gh-fzf}"
-mkdir -p "$data_dir/notification"
+GH_ND_DATA_DIR="${GH_ND_DATA_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/gh-notify-desktop}"
+mkdir -p "$GH_ND_DATA_DIR"
 
 now="$(date +'%s')"
-last_checked="$(cat "$data_dir/notification/last-checked" 2>/dev/null)"
+last_checked="$(cat "$GH_ND_DATA_DIR/last-checked" 2>/dev/null)"
 
 if [ -n "$last_checked" ]; then
     time_since_last_check=$((now - last_checked))
-    poll_interval="$(cat "$data_dir/notification/poll-interval" 2>/dev/null)"
+    poll_interval="$(cat "$GH_ND_DATA_DIR/poll-interval" 2>/dev/null)"
 
     if [ -n "$poll_interval" ]; then
         remaining_poll_wait=$((poll_interval - time_since_last_check))
@@ -23,14 +23,14 @@ if [ -n "$last_checked" ]; then
     fi
 fi
 
-echo "$now" >"$data_dir/notification/last-checked"
+echo "$now" >"$GH_ND_DATA_DIR/last-checked"
 
 headers="$(
     curl -I --silent --url https://api.github.com/notifications \
         --header "Authorization: Bearer $(gh auth token)" \
         --header "X-GitHub-Api-Version: 2022-11-28" \
         --header "If-Modified-Since: $(
-            cat "$data_dir/notification/last-modified" 2>/dev/null
+            cat "$GH_ND_DATA_DIR/last-modified" 2>/dev/null
         )"
 )"
 
@@ -41,10 +41,10 @@ poll_interval="$(
 )"
 
 [ -n "$last_modified" ] &&
-    echo "$last_modified" >"$data_dir/notification/last-modified"
+    echo "$last_modified" >"$GH_ND_DATA_DIR/last-modified"
 
 [ -n "$poll_interval" ] &&
-    echo "$poll_interval" >"$data_dir/notification/poll-interval"
+    echo "$poll_interval" >"$GH_ND_DATA_DIR/poll-interval"
 
 if [ "$status_code" = "200" ]; then
     echo "There are new GitHub notifications" >&2
