@@ -61,10 +61,19 @@ if [ -t 0 ] && [ -t 1 ]; then
     exit 0
 fi
 
+# Add dunstify action to open if the gh-notify extension is installed
+# and if the TERMINAL environment variable is set to a supported emulator
+# https://github.com/meiji163/gh-notify
+if gh extension list | grep -q 'gh notify' 2>/dev/null &&
+    [[ "$TERMINAL" =~ ^(x-terminal-emulator|xterm|wezterm|kitty|alacritty|gnome-terminal|konsole|foot|eterm|st)$ ]]; then
+    cli_action="cli,open in gh-notify"
+fi
+
 action_response=$(
     dunstify "GitHub" "new notification(s)" -a "gh-notify-desktop" \
-        ${GH_FZF_NOTIFY_ICON:+-i "$GH_FZF_NOTIFY_ICON"} \
-        -A "web,open in browser" -A "cli,open in gh-notify"
+        ${GH_ND_ICON:+-i "$GH_ND_ICON"} \
+        ${BROWSER:+-A "web,open in browser"} \
+        ${cli_action:+-A "$cli_action"}
 )
 
 case $action_response in
