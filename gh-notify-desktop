@@ -69,14 +69,18 @@ if gh extension list | grep -q 'gh notify' 2>/dev/null &&
     cli_action="cli,open in gh-notify"
 fi
 
+if [ -n "$GH_BROWSER" ] || [ -n "$BROWSER" ]; then
+    web_action="web,open in browser"
+fi
+
 action_response=$(
     dunstify "GitHub" "new notification(s)" -a "gh-notify-desktop" \
         ${GH_ND_ICON:+-i "$GH_ND_ICON"} \
-        ${BROWSER:+-A "web,open in browser"} \
+        ${web_action:+-A "$web_action"} \
         ${cli_action:+-A "$cli_action"}
 )
 
 case $action_response in
-    web) $BROWSER https://github.com/notifications?query=is%3Aunread ;;
+    web) ${GH_BROWSER:-$BROWSER} https://github.com/notifications?query=is%3Aunread ;;
     cli) $TERMINAL -e sh -c "gh notify" ;;
 esac
