@@ -1,0 +1,10 @@
+{
+  "gh-notify-desktop": {
+    "type": "main",
+    "alternate": "README.md"
+  },
+  "README.md": {
+    "type": "doc",
+    "alternate": "gh-notify-desktop"
+  }
+}

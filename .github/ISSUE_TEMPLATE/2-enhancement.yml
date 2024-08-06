@@ -1,0 +1,42 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-issue-forms.json
+name: Enhancement
+description: Request a new feature.
+labels: ["enhancement"]
+assignees:
+  - benelan
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for logging an issue, I appreciate the feedback! Please confirm the following before continuing:
+        - You are using the latest version, since the issue may already be fixed.
+        - There are no [existing issues](/../../issues?q=is%3Aopen+is%3Aissue+label%3Aenhancement) with the same feature request.
+            - If there is a duplicate issue, please add a 👍 reaction instead of creating a new one.
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What is the requested functionality?
+    validations:
+      required: true
+  - type: textarea
+    id: criteria
+    attributes:
+      label: Acceptance Criteria
+      description: Requirements, desired new behavior, etc.
+    validations:
+      required: true
+  - type: textarea
+    id: info
+    attributes:
+      label: Relevant Info
+      description: Dependencies, blockers, helpful details, etc.
+    validations:
+      required: false
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Example Use Case
+      description: Code snippet, link to a similar product, etc.
+    validations:
+      required: false

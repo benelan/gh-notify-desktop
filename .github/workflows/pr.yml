@@ -1,0 +1,24 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: PR
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - edited
+      - synchronize
+      - reopened
+      - ready_for_review
+
+permissions: {}
+
+jobs:
+  checks:
+    if: github.repository_owner == 'benelan'
+    permissions:
+      statuses: write
+      contents: read
+      packages: read
+      pull-requests: read
+    uses: benelan/github/.github/workflows/pr.yml@main
+    secrets: inherit
