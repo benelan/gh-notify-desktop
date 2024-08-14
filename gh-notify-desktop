@@ -1,14 +1,48 @@
 #!/usr/bin/env bash
 
-# Responsibly check for new GitHub notifications and notify the desktop
+# GitHub desktop notifications. Designed for polling the API responsibly by
+# checking Last-Modified and adhering to X-Poll-Interval before making requests
 # https://docs.github.com/en/rest/activity/notifications?apiVersion=2022-11-28
 
-EXTENSION_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
 DATA_DIR="${GH_ND_DATA_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/gh-notify-desktop}"
-
 mkdir -p "$DATA_DIR"
 
+EXTENSION_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
+
+# https://github.com/logos
+if [ -f "$GH_ND_ICON" ]; then
+    ICON="$GH_ND_ICON"
+elif [ "$GH_ND_ICON" = "dark" ] && [ -f "$EXTENSION_DIR/img/github-mark.svg" ]; then
+    ICON="$EXTENSION_DIR/img/github-mark.svg"
+elif [ -f "$EXTENSION_DIR/img/github-mark-white.svg" ]; then
+    ICON="$EXTENSION_DIR/img/github-mark-white.svg"
+fi
+
+PARTICIPATING=false
+ALL=false
+
+parse_args() {
+    while getopts i:aph opt; do
+        case $opt in
+            a) ALL=true ;;
+            p) PARTICIPATING=true ;;
+            i) [ -f "$OPTARG" ] && ICON="$OPTARG" ;;
+            h) die ;;
+            *) die ;;
+        esac
+    done
+
+    shift "$((OPTIND - 1))"
+}
+
+die() {
+    echo "Something went wrong..." >&2
+    exit 1
+}
+
 check_poll_interval() {
+    local now last_checked time_since_last_check poll_interval remaining_poll_wait
+
     now="$(date +'%s')"
     last_checked="$(cat "$DATA_DIR/last-checked" 2>/dev/null)"
 
@@ -30,20 +64,26 @@ check_poll_interval() {
 }
 
 check_response_headers() {
-    headers="$(
-        curl -I --silent --url https://api.github.com/notifications \
-            --header "Authorization: Bearer $(gh auth token)" \
-            --header "X-GitHub-Api-Version: 2022-11-28" \
-            --header "If-Modified-Since: $(
+    local headers status_code last_modified poll_interval
+
+    resp="$(
+        gh api -i "/notifications?participating=$PARTICIPATING&all=$ALL" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -H "If-Modified-Since: $(
                 cat "$DATA_DIR/last-modified" 2>/dev/null
             )"
+
     )"
+
+    headers="$(head -n-1 <<<"$resp")"
+    body="$(tail -n1 <<<"$resp")"
 
     status_code="$(head -n1 <<<"$headers" | cut -d ' ' -f2)"
     last_modified="$(grep last-modified <<<"$headers" | awk -F ': ' '{print $2}')"
-    poll_interval="$(
-        grep x-poll-interval <<<"$headers" | awk -F ': ' '{print $2}' | tr -dc '[:digit:]'
-    )"
+    # poll_interval="$(
+    #     grep x-poll-interval <<<"$headers" | awk -F ': ' '{print $2}' | tr -dc '[:digit:]'
+    # )"
 
     if [ -n "$last_modified" ]; then
         echo "$last_modified" >"$DATA_DIR/last-modified"
@@ -69,6 +109,8 @@ check_response_headers() {
 }
 
 notify_with_dunst() {
+    local cli_action web_action action_response
+
     # Add dunstify action to open if the gh-notify extension is installed
     # and if the TERMINAL environment variable is set to a supported emulator
     # https://github.com/meiji163/gh-notify
@@ -81,28 +123,29 @@ notify_with_dunst() {
         web_action="web,open in browser"
     fi
 
-    # https://github.com/logos
-    if [ -f "$GH_ND_ICON" ]; then
-        github_icon="$GH_ND_ICON"
-    elif [ "$GH_ND_ICON" = "dark" ] && [ -f "$EXTENSION_DIR/img/github-mark.svg" ]; then
-        github_icon="$EXTENSION_DIR/img/github-mark.svg"
-    elif [ -f "$EXTENSION_DIR/img/github-mark-white.svg" ]; then
-        github_icon="$EXTENSION_DIR/img/github-mark-white.svg"
-    fi
-
     action_response=$(
         dunstify "GitHub" "new notification(s)" -a "gh-notify-desktop" \
-            ${github_icon:+-i "$github_icon"} \
+            ${ICON:+-i "$ICON"} \
             ${web_action:+-A "$web_action"} \
             ${cli_action:+-A "$cli_action"}
     )
 
+    if [ "$PARTICIPATING" = true ]; then
+        query+="reason%3Aparticipating&"
+        flags+=" -p"
+    fi
+
+    if [ "$ALL" = false ]; then
+        query+="is%3Aunread"
+        flags+=" -a"
+    fi
+
     case "$action_response" in
-        web) ${GH_BROWSER:-$BROWSER} https://github.com/notifications?query=is%3Aunread ;;
-        cli) $TERMINAL -e sh -c "gh notify" ;;
+        web) ${GH_BROWSER:-$BROWSER} "https://github.com/notifications?query=$query" ;;
+        cli) $TERMINAL -e sh -c "gh notify$flags" ;;
     esac
 }
 
-check_poll_interval
+# check_poll_interval
 check_response_headers
 notify_with_dunst
