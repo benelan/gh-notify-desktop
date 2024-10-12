@@ -3,6 +3,9 @@
 # GitHub desktop notifications. Designed for polling the API responsibly by
 # checking Last-Modified and adhering to X-Poll-Interval before making requests
 # https://docs.github.com/en/rest/activity/notifications?apiVersion=2022-11-28
+#
+# Usage: run the extension in a systemd timer or cronjob, for example:
+# */2 * * * * bash -l -c 'gh notify-desktop -p'
 
 DATA_DIR="${GH_ND_DATA_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/gh-notify-desktop}"
 mkdir -p "$DATA_DIR"
@@ -77,13 +80,13 @@ check_response_headers() {
     )"
 
     headers="$(head -n-1 <<<"$resp")"
-    body="$(tail -n1 <<<"$resp")"
+    # body="$(tail -n1 <<<"$resp")"
 
     status_code="$(head -n1 <<<"$headers" | cut -d ' ' -f2)"
     last_modified="$(grep last-modified <<<"$headers" | awk -F ': ' '{print $2}')"
-    # poll_interval="$(
-    #     grep x-poll-interval <<<"$headers" | awk -F ': ' '{print $2}' | tr -dc '[:digit:]'
-    # )"
+    poll_interval="$(
+        grep x-poll-interval <<<"$headers" | awk -F ': ' '{print $2}' | tr -dc '[:digit:]'
+    )"
 
     if [ -n "$last_modified" ]; then
         echo "$last_modified" >"$DATA_DIR/last-modified"
@@ -96,9 +99,9 @@ check_response_headers() {
     if [ "$status_code" = "200" ]; then
         echo "There are new GitHub notifications" >&2
         # # don't create a desktop notification if the io streams are a tty
-        # if [ -t 0 ] && [ -t 1 ]; then
-        #     exit 0
-        # fi
+        if [ -t 0 ] && [ -t 1 ]; then
+            exit 0
+        fi
     elif [ "$status_code" = "304" ]; then
         echo "Up to date on GitHub notifications" >&2
         exit 2
@@ -146,6 +149,6 @@ notify_with_dunst() {
     esac
 }
 
-# check_poll_interval
+check_poll_interval
 check_response_headers
 notify_with_dunst
