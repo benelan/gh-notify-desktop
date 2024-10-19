@@ -5,12 +5,18 @@
 # https://docs.github.com/en/rest/activity/notifications?apiVersion=2022-11-28
 #
 # Usage: run the extension in a systemd timer or cronjob, for example:
-# */2 * * * * bash -l -c 'gh notify-desktop -p'
+# */2 * * * * bash -l -c 'gh notify-desktop -p >> ~/.local/state/gh-notify-desktop/log 2>&1'
 
-DATA_DIR="${GH_ND_DATA_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/gh-notify-desktop}"
-mkdir -p "$DATA_DIR"
+: "${DISPLAY=:0}"
+: "${XAUTHORITY=~/.Xauthority}"
+: "${DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus}"
+: "${GH_TOKEN=$(gh auth token)}"
+
+export DISPLAY XAUTHORITY GH_TOKEN DBUS_SESSION_BUS_ADDRESS
 
 EXTENSION_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
+DATA_DIR="${GH_ND_DATA_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/gh-notify-desktop}"
+mkdir -p "$DATA_DIR"
 
 # https://github.com/logos
 if [ -f "$GH_ND_ICON" ]; then
