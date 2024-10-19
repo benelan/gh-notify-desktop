@@ -83,9 +83,16 @@ check_response_headers() {
     # body="$(tail -n1 <<<"$resp")"
 
     status_code="$(head -n1 <<<"$headers" | cut -d ' ' -f2)"
-    last_modified="$(grep last-modified <<<"$headers" | awk -F ': ' '{print $2}')"
+
+    last_modified="$(
+        grep --ignore-case last-modified <<<"$headers" |
+            awk -F ': ' '{print $2}'
+    )"
+
     poll_interval="$(
-        grep x-poll-interval <<<"$headers" | awk -F ': ' '{print $2}' | tr -dc '[:digit:]'
+        grep --ignore-case x-poll-interval <<<"$headers" |
+            awk -F ': ' '{print $2}' |
+            tr -dc '[:digit:]'
     )"
 
     if [ -n "$last_modified" ]; then
