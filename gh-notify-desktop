@@ -162,6 +162,7 @@ notify_with_dunst() {
     esac
 }
 
+parse_args
 check_poll_interval
 check_response_headers
 notify_with_dunst
