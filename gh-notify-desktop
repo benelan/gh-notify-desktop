@@ -58,6 +58,61 @@ check_poll_interval() {
     echo "$now" >"$DATA_DIR/last-checked"
 }
 
+# Extracts and formats relevant information from a GitHub URL based on its type
+# Returns: a number and optionally a new type, or raises an error for release types
+process_url() {
+    local type="$1" url="$2"
+    local number prerelease
+    if command grep -q "Commit" <<<"$type"; then
+        # https://blog.cuviper.com/2013/11/10/how-short-can-git-abbreviate/
+        command basename "$url" | command head -c 12
+    elif command grep -q "Release" <<<"$type"; then
+        if IFS=$'\t' read -r number prerelease < <(gh_rest_api "$url" \
+            --cache=100h --jq '[.tag_name, .prerelease] | @tsv'); then
+            if "$prerelease"; then
+                echo "$number Pre-release"
+            else
+                echo "$number"
+            fi
+        else
+            # Release URLs may already be inaccessible and are therefore skipped unless in Debug
+            # mode. Since nothing will be sent, the notification will be skipped in the
+            # 'process_page' function.
+            if $GH_NOTIFY_DEBUG_MODE; then
+                die "Failed to retrieve the release information: $url"
+            fi
+        fi
+    else
+        # Minimize gh API calls as they are time-consuming
+        echo "${url/*\//#}"
+    fi
+}
+
+# Processes a page of GitHub notifications, extracting and formatting relevant details.
+process_page() {
+    local page="$1"
+    while IFS=$'\t' read -r _ iso8601 thread_id thread_state \
+        comment_url repo_full_name timefmt repo_abbreviated type url reason \
+        title; do
+        local number="" modified_type
+        # if command grep -q "Discussion" <<<"$type"; then
+        #     number=$(process_discussion "$title" "$updated_short" "$repo_full_name") || return 1
+        if ! command grep -q "^null" <<<"$url"; then
+            if ! output=$(process_url "$type" "$url"); then
+                return 1
+            fi
+            read -r number modified_type <<<"$output"
+            if [[ -z $number ]]; then
+                continue
+            fi
+        fi
+        printf "\n%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
+            "$iso8601" "$thread_id" "$thread_state" "$comment_url" "$repo_full_name" \
+            "$timefmt" "$repo_abbreviated" "${modified_type:-$type}" \
+            "$number" "$reason" "$title"
+    done <<<"$page"
+}
+
 check_response_headers() {
     local headers status_code last_modified poll_interval
 
@@ -130,8 +185,8 @@ check_response_headers() {
 
     [ -n "$DEBUG" ] && echo "$resp"
 
-    headers="$(head -n-1 <<<"$resp")"
-    # body="$(tail -n1 <<<"$resp")"
+    headers="$(awk -v 'RS=\r\n\r\n' 'NR==1 {print}' <<<"$resp")"
+    body="$(awk -v 'RS=\r\n\r\n' 'NR==2 {print}' <<<"$resp")"
 
     status_code="$(head -n1 <<<"$headers" | cut -d ' ' -f2)"
 
