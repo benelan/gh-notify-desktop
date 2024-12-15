@@ -229,7 +229,7 @@ notify_with_dunst() {
     fi
 
     action_response=$(
-        dunstify "GitHub $type: $reason" "$title" -a "gh-notify-desktop" \
+        dunstify "[$repo_slug] $type: $reason" "$title" -a "gh-notify-desktop" \
             ${ICON:+-i "$ICON"} \
             -A "web,open in browser" \
             ${cli_action:+-A "$cli_action"}
