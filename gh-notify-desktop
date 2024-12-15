@@ -30,6 +30,20 @@ fi
 PARTICIPATING=false
 ALL=false
 
+_has() { command -v "$1" >/dev/null 2>&1; }
+
+if [ -z "$GH_ND_OPEN_CMD" ]; then
+    if _has wslview; then
+        GH_ND_OPEN_CMD="wslview" # Windows (WSL)
+    elif _has xdg-open; then
+        GH_ND_OPEN_CMD="xdg-open" # Linux
+    elif _has open; then
+        GH_ND_OPEN_CMD="open" # OSX
+    else
+        GH_ND_OPEN_CMD="${GH_BROWSER:-$BROWSER}" # Fallback
+    fi
+fi
+
 die() {
     echo "Something went wrong..." >&2
     exit 1
@@ -58,59 +72,8 @@ check_poll_interval() {
     echo "$now" >"$DATA_DIR/last-checked"
 }
 
-# Extracts and formats relevant information from a GitHub URL based on its type
-# Returns: a number and optionally a new type, or raises an error for release types
-process_url() {
-    local type="$1" url="$2"
-    local number prerelease
-    if command grep -q "Commit" <<<"$type"; then
-        # https://blog.cuviper.com/2013/11/10/how-short-can-git-abbreviate/
-        command basename "$url" | command head -c 12
-    elif command grep -q "Release" <<<"$type"; then
-        if IFS=$'\t' read -r number prerelease < <(gh_rest_api "$url" \
-            --cache=100h --jq '[.tag_name, .prerelease] | @tsv'); then
-            if "$prerelease"; then
-                echo "$number Pre-release"
-            else
-                echo "$number"
-            fi
-        else
-            # Release URLs may already be inaccessible and are therefore skipped unless in Debug
-            # mode. Since nothing will be sent, the notification will be skipped in the
-            # 'process_page' function.
-            if $GH_NOTIFY_DEBUG_MODE; then
-                die "Failed to retrieve the release information: $url"
-            fi
-        fi
-    else
-        # Minimize gh API calls as they are time-consuming
-        echo "${url/*\//#}"
-    fi
-}
-
-# Processes a page of GitHub notifications, extracting and formatting relevant details.
-process_page() {
-    local page="$1"
-    while IFS=$'\t' read -r _ iso8601 thread_id thread_state \
-        comment_url repo_full_name timefmt repo_abbreviated type url reason \
-        title; do
-        local number="" modified_type
-        # if command grep -q "Discussion" <<<"$type"; then
-        #     number=$(process_discussion "$title" "$updated_short" "$repo_full_name") || return 1
-        if ! command grep -q "^null" <<<"$url"; then
-            if ! output=$(process_url "$type" "$url"); then
-                return 1
-            fi
-            read -r number modified_type <<<"$output"
-            if [[ -z $number ]]; then
-                continue
-            fi
-        fi
-        printf "\n%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
-            "$iso8601" "$thread_id" "$thread_state" "$comment_url" "$repo_full_name" \
-            "$timefmt" "$repo_abbreviated" "${modified_type:-$type}" \
-            "$number" "$reason" "$title"
-    done <<<"$page"
+gh_rest_api() {
+    command gh api --header "X-GitHub-Api-Version: 2022-11-28" "$@"
 }
 
 check_response_headers() {
@@ -125,61 +88,17 @@ check_response_headers() {
                 [ -z "$DEBUG" ] && cat "$DATA_DIR/last-modified" 2>/dev/null
             )" \
             --jq $'.[] | {
-            # The "if" needs to be wrapped in parentheses, otherwise it will fail on some OSs.
-            updated_short:
-                # for some reason ".updated_at" can be null
-                (if .updated_at then
-                    .updated_at | fromdateiso8601 | strftime("%Y-%m")
-                else
-                    # Github Discussion launched in 2020
-                    # https://resources.github.com/devops/process/planning/discussions/
-                    "2020"
-                end),
-            # UTC time ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ
-            # https://docs.github.com/en/rest/overview/resources-in-the-rest-api#timezones
-            iso8601: now | strftime("%Y-%m-%dT%H:%M:%SZ"),
             thread_id: .id,
             thread_state: (if .unread then "UNREAD" else "READ" end),
-            comment_url: .subject.latest_comment_url | tostring | split("/") | last,
+            comment_number: .subject.latest_comment_url | tostring | split("/") | last,
             repo_full_name: .repository.full_name,
-            # make sure each outcome has an equal number of fields separated by spaces
-            timefmt: (
-                # for some reason ".updated_at" can be null
-                if (.unread and .last_read_at) or .updated_at then
-                    ((if .unread then .last_read_at // .updated_at else .updated_at end) | fromdateiso8601) as $time_sec |
-                    # difference is less than one hour
-                    if ((now - $time_sec) / 3600) < 1 then
-                        (now - $time_sec) / 60 | floor | tostring + "min ago"
-                    # difference is less than 24 hours
-                    elif ((now - $time_sec) / 3600) < 24 then
-                        (now - $time_sec) / 3600 | floor | tostring + "h ago"
-                    else
-                        $time_sec | strflocaltime("%d/%b %H:%M")
-                    end
-                else
-                    "Not available"
-                end),
-            owner_abbreviated: (
-                if (.repository.owner.login | length) > 10 then
-                    .repository.owner.login | .[0:9]  | tostring + "… "
-                else
-                    .repository.owner.login
-                end),
-            name_abbreviated: (
-                if (.repository.name | length) > 13 then
-                    .repository.name | .[0:12] | tostring + "… "
-                else
-                    .repository.name
-                end),
             type: .subject.type,
-            # Some infos have to be pulled from this URL in later steps, so no string modifications.
             url: .subject.url | tostring,
             reason: .reason,
             title: .subject.title
             } | [
-            .updated_short, .iso8601, .thread_id, .thread_state, .comment_url, .repo_full_name,
-            .timefmt, "\(.owner_abbreviated)/\(.name_abbreviated)", .type, .url,
-            .reason, .title
+            .thread_id, .thread_state, .comment_number,
+            .repo_full_name, .type, .url, .reason, .title
         ] | @tsv' 2>"$DATA_DIR/log"
     )"
 
@@ -211,10 +130,9 @@ check_response_headers() {
 
     if [ "$status_code" = "200" ]; then
         echo "There are new GitHub notifications" >&2
-        # # don't create a desktop notification if the io streams are a tty
-        if [ -t 0 ] && [ -t 1 ]; then
-            exit 0
-        fi
+        # don't create a desktop notification if the io streams are a tty
+        [ -z "$DEBUG" ] && [ -t 0 ] && [ -t 1 ] && exit 0
+        process_page "$body"
     elif [ "$status_code" = "304" ]; then
         echo "Up to date on GitHub notifications" >&2
         exit 2
@@ -224,42 +142,108 @@ check_response_headers() {
     fi
 }
 
+# Processes a page of GitHub notifications, extracting and formatting relevant details.
+process_page() {
+    local page="$1" unhashed_number number=""
+    while IFS=$'\t' read -r _ _ comment_number repo_full_name type url reason title; do
+        if ! command grep -q "^null" <<<"$url"; then
+            if ! output=$(process_url "$type" "$url"); then
+                return 1
+            fi
+            read -r number modified_type <<<"$output"
+            if [[ -z $number ]]; then
+                continue
+            fi
+        fi
+
+        notify_with_dunst "$comment_number" "$repo_full_name" \
+            "${modified_type:-$type}" "$number" "$reason" "$title"
+    done <<<"$page"
+}
+
+# Extracts and formats relevant information from a GitHub URL based on its type
+# Returns: a number and optionally a new type, or raises an error for release types
+process_url() {
+    local type="$1" url="$2" number prerelease
+    if command grep -q "Commit" <<<"$type"; then
+        # https://blog.cuviper.com/2013/11/10/how-short-can-git-abbreviate/
+        command basename "$url" | command head -c 12
+    elif command grep -q "Release" <<<"$type"; then
+        if IFS=$'\t' read -r number prerelease < <(
+            gh api "$url" --cache=100h -H "X-GitHub-Api-Version: 2022-11-28" \
+                --jq '[.tag_name, .prerelease] | @tsv'
+        ); then
+            if "$prerelease"; then
+                echo "$number Pre-release"
+            else
+                echo "$number"
+            fi
+        fi
+    else
+        # Minimize gh API calls as they are time-consuming
+        echo "${url/*\//#}"
+    fi
+}
+
+open_in_browser() {
+    local unhashed_number comment_number="$1" repo_full_name="$2" type="$3" number"$4"
+    unhashed_number=$(command tr -d "#" <<<"$number")
+    case "$type" in
+        CheckSuite)
+            $GH_ND_OPEN_CMD "https://github.com/${repo_full_name}/actions" 2>/dev/null &
+            ;;
+        Commit)
+            command gh browse "$number" --repo "$repo_full_name"
+            ;;
+        Discussion)
+            $GH_ND_OPEN_CMD "https://github.com/${repo_full_name}/discussions/" 2>/dev/null &
+            ;;
+        Issue | PullRequest)
+            if [ -z "$comment_number" ] ||
+                [ "$comment_number" = "$unhashed_number" ] ||
+                [ "$comment_number" = "null" ]; then
+                command gh issue view "$number" --web --repo "$repo_full_name"
+            else
+                $GH_ND_OPEN_CMD "https://github.com/${repo_full_name}/issues/${unhashed_number}#issuecomment-${comment_number}" 2>/dev/null &
+            fi
+            ;;
+        Pre-release | Release)
+            command gh release view "$number" --web --repo "$repo_full_name"
+            ;;
+        *)
+            command gh repo view --web "$repo_full_name"
+            ;;
+    esac
+}
+
 notify_with_dunst() {
-    local cli_action web_action action_response
+    local cli_action action_response flags \
+        comment_number="$1" repo_full_name="$2" type="$3" url="$4" reason="$5" title="$6"
 
     # Add dunstify action to open if the gh-notify extension is installed
     # and if the TERMINAL environment variable is set to a supported emulator
     # https://github.com/meiji163/gh-notify
-    if gh extension list | grep -q 'gh notify' 2>/dev/null &&
+    if gh extension list 2>/dev/null | grep -q 'gh notify' 2>/dev/null &&
         [[ "$TERMINAL" =~ ^(x-terminal-emulator|xterm|wezterm|kitty|alacritty|gnome-terminal|konsole|foot|eterm|st)$ ]]; then
         cli_action="cli,open in gh-notify"
     fi
 
-    if [ -n "$GH_BROWSER" ] || [ -n "$BROWSER" ]; then
-        web_action="web,open in browser"
-    fi
-
     action_response=$(
-        dunstify "GitHub" "new notification(s)" -a "gh-notify-desktop" \
+        dunstify "GitHub $type: $reason" "$title" -a "gh-notify-desktop" \
             ${ICON:+-i "$ICON"} \
-            ${web_action:+-A "$web_action"} \
+            -A "web,open in browser" \
             ${cli_action:+-A "$cli_action"}
     )
 
-    if [ "$PARTICIPATING" = true ]; then
-        query+="reason%3Aparticipating&"
-        flags+=" -p"
-    fi
-
-    if [ "$ALL" = false ]; then
-        query+="is%3Aunread"
-    else
-        flags+=" -a"
-    fi
-
     case "$action_response" in
-        web) ${GH_BROWSER:-$BROWSER} "https://github.com/notifications?query=$query" ;;
-        cli) $TERMINAL -e sh -c "gh notify$flags" ;;
+        web)
+            open_in_browser "$comment_number" "$repo_full_name" "$type" "$number"
+            ;;
+        cli)
+            [ "$PARTICIPATING" = true ] && flags+=" -p"
+            [ "$ALL" = true ] && flags+=" -a"
+            $TERMINAL -e sh -c "gh notify$flags"
+            ;;
     esac
 }
 
@@ -277,4 +261,4 @@ shift "$((OPTIND - 1))"
 
 [ -z "$DEBUG" ] && check_poll_interval
 check_response_headers
-notify_with_dunst
+process_page "$body"
