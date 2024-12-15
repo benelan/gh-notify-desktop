@@ -91,14 +91,14 @@ check_response_headers() {
             thread_id: .id,
             thread_state: (if .unread then "UNREAD" else "READ" end),
             comment_number: .subject.latest_comment_url | tostring | split("/") | last,
-            repo_full_name: .repository.full_name,
+            repo_slug: .repository.full_name,
             type: .subject.type,
             url: .subject.url | tostring,
             reason: .reason,
             title: .subject.title
             } | [
             .thread_id, .thread_state, .comment_number,
-            .repo_full_name, .type, .url, .reason, .title
+            .repo_slug, .type, .url, .reason, .title
         ] | @tsv' 2>"$DATA_DIR/log"
     )"
 
@@ -145,7 +145,7 @@ check_response_headers() {
 # Processes a page of GitHub notifications, extracting and formatting relevant details.
 process_page() {
     local page="$1" unhashed_number number=""
-    while IFS=$'\t' read -r _ _ comment_number repo_full_name type url reason title; do
+    while IFS=$'\t' read -r _ _ comment_number repo_slug type url reason title; do
         if ! command grep -q "^null" <<<"$url"; then
             if ! output=$(process_url "$type" "$url"); then
                 return 1
@@ -156,7 +156,7 @@ process_page() {
             fi
         fi
 
-        notify_with_dunst "$comment_number" "$repo_full_name" \
+        notify_with_dunst "$comment_number" "$repo_slug" \
             "${modified_type:-$type}" "$number" "$reason" "$title"
     done <<<"$page"
 }
@@ -186,39 +186,39 @@ process_url() {
 }
 
 open_in_browser() {
-    local unhashed_number comment_number="$1" repo_full_name="$2" type="$3" number"$4"
+    local unhashed_number comment_number="$1" repo_slug="$2" type="$3" number="$4"
     unhashed_number=$(command tr -d "#" <<<"$number")
     case "$type" in
         CheckSuite)
-            $GH_ND_OPEN_CMD "https://github.com/${repo_full_name}/actions" 2>/dev/null &
+            $GH_ND_OPEN_CMD "https://github.com/${repo_slug}/actions" 2>/dev/null &
             ;;
         Commit)
-            command gh browse "$number" --repo "$repo_full_name"
+            command gh browse "$number" --repo "$repo_slug"
             ;;
         Discussion)
-            $GH_ND_OPEN_CMD "https://github.com/${repo_full_name}/discussions/" 2>/dev/null &
+            $GH_ND_OPEN_CMD "https://github.com/${repo_slug}/discussions/" 2>/dev/null &
             ;;
         Issue | PullRequest)
             if [ -z "$comment_number" ] ||
                 [ "$comment_number" = "$unhashed_number" ] ||
                 [ "$comment_number" = "null" ]; then
-                command gh issue view "$number" --web --repo "$repo_full_name"
+                command gh issue view "$number" --web --repo "$repo_slug"
             else
-                $GH_ND_OPEN_CMD "https://github.com/${repo_full_name}/issues/${unhashed_number}#issuecomment-${comment_number}" 2>/dev/null &
+                $GH_ND_OPEN_CMD "https://github.com/${repo_slug}/issues/${unhashed_number}#issuecomment-${comment_number}" 2>/dev/null &
             fi
             ;;
         Pre-release | Release)
-            command gh release view "$number" --web --repo "$repo_full_name"
+            command gh release view "$number" --web --repo "$repo_slug"
             ;;
         *)
-            command gh repo view --web "$repo_full_name"
+            command gh repo view --web "$repo_slug"
             ;;
     esac
 }
 
 notify_with_dunst() {
     local cli_action action_response flags \
-        comment_number="$1" repo_full_name="$2" type="$3" url="$4" reason="$5" title="$6"
+        comment_number="$1" repo_slug="$2" type="$3" number="$4" reason="$5" title="$6"
 
     # Add dunstify action to open if the gh-notify extension is installed
     # and if the TERMINAL environment variable is set to a supported emulator
@@ -237,7 +237,7 @@ notify_with_dunst() {
 
     case "$action_response" in
         web)
-            open_in_browser "$comment_number" "$repo_full_name" "$type" "$number"
+            open_in_browser "$comment_number" "$repo_slug" "$type" "$number"
             ;;
         cli)
             [ "$PARTICIPATING" = true ] && flags+=" -p"
