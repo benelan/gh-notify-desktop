@@ -157,7 +157,7 @@ process_page() {
         fi
 
         notify_with_dunst "$comment_number" "$repo_slug" \
-            "${modified_type:-$type}" "$number" "$reason" "$title"
+            "${modified_type:-$type}" "$number" "$reason" "$title" &
     done <<<"$page"
 }
 
