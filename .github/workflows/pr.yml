@@ -1,5 +1,5 @@
 # yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
-name: PR
+name: PR Title
 
 on:
   pull_request_target:
@@ -10,15 +10,10 @@ on:
       - reopened
       - ready_for_review
 
-permissions: {}
+permissions:
+  pull-requests: read
 
 jobs:
-  checks:
-    if: github.repository_owner == 'benelan'
-    permissions:
-      statuses: write
-      contents: read
-      packages: read
-      pull-requests: read
+  pr-title:
     uses: benelan/github/.github/workflows/pr.yml@main
     secrets: inherit
