@@ -30,6 +30,20 @@ fi
 PARTICIPATING=false
 ALL=false
 
+_has() { command -v "$1" >/dev/null 2>&1; }
+
+if [ -z "$GH_ND_OPEN_CMD" ]; then
+    if _has wslview; then
+        GH_ND_OPEN_CMD="wslview" # Windows (WSL)
+    elif _has xdg-open; then
+        GH_ND_OPEN_CMD="xdg-open" # Linux
+    elif _has open; then
+        GH_ND_OPEN_CMD="open" # OSX
+    else
+        GH_ND_OPEN_CMD="${GH_BROWSER:-$BROWSER}" # Fallback
+    fi
+fi
+
 die() {
     echo "Something went wrong..." >&2
     exit 1
@@ -58,20 +72,40 @@ check_poll_interval() {
     echo "$now" >"$DATA_DIR/last-checked"
 }
 
+gh_rest_api() {
+    command gh api --header "X-GitHub-Api-Version: 2022-11-28" "$@"
+}
+
 check_response_headers() {
     local headers status_code last_modified poll_interval
 
     resp="$(
+        # jq expression adopted from https://github.com/meiji163/gh-notify
         gh api -i "/notifications?participating=$PARTICIPATING&all=$ALL" \
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             -H "If-Modified-Since: $(
-                cat "$DATA_DIR/last-modified" 2>/dev/null
-            )"
+                [ -z "$DEBUG" ] && cat "$DATA_DIR/last-modified" 2>/dev/null
+            )" \
+            --jq $'.[] | {
+            thread_id: .id,
+            thread_state: (if .unread then "UNREAD" else "READ" end),
+            comment_number: .subject.latest_comment_url | tostring | split("/") | last,
+            repo_slug: .repository.full_name,
+            type: .subject.type,
+            url: .subject.url | tostring,
+            reason: .reason,
+            title: .subject.title
+            } | [
+            .thread_id, .thread_state, .comment_number,
+            .repo_slug, .type, .url, .reason, .title
+        ] | @tsv' 2>"$DATA_DIR/log"
     )"
 
-    headers="$(head -n-1 <<<"$resp")"
-    # body="$(tail -n1 <<<"$resp")"
+    [ -n "$DEBUG" ] && echo "$resp"
+
+    headers="$(awk -v 'RS=\r\n\r\n' 'NR==1 {print}' <<<"$resp")"
+    body="$(awk -v 'RS=\r\n\r\n' 'NR==2 {print}' <<<"$resp")"
 
     status_code="$(head -n1 <<<"$headers" | cut -d ' ' -f2)"
 
@@ -96,10 +130,9 @@ check_response_headers() {
 
     if [ "$status_code" = "200" ]; then
         echo "There are new GitHub notifications" >&2
-        # # don't create a desktop notification if the io streams are a tty
-        if [ -t 0 ] && [ -t 1 ]; then
-            exit 0
-        fi
+        # don't create a desktop notification if the io streams are a tty
+        [ -z "$DEBUG" ] && [ -t 0 ] && [ -t 1 ] && exit 0
+        process_page "$body"
     elif [ "$status_code" = "304" ]; then
         echo "Up to date on GitHub notifications" >&2
         exit 2
@@ -109,42 +142,108 @@ check_response_headers() {
     fi
 }
 
+# Processes a page of GitHub notifications, extracting and formatting relevant details.
+process_page() {
+    local page="$1" unhashed_number number=""
+    while IFS=$'\t' read -r _ _ comment_number repo_slug type url reason title; do
+        if ! command grep -q "^null" <<<"$url"; then
+            if ! output=$(process_url "$type" "$url"); then
+                return 1
+            fi
+            read -r number modified_type <<<"$output"
+            if [[ -z $number ]]; then
+                continue
+            fi
+        fi
+
+        notify_with_dunst "$comment_number" "$repo_slug" \
+            "${modified_type:-$type}" "$number" "$reason" "$title" &
+    done <<<"$page"
+}
+
+# Extracts and formats relevant information from a GitHub URL based on its type
+# Returns: a number and optionally a new type, or raises an error for release types
+process_url() {
+    local type="$1" url="$2" number prerelease
+    if command grep -q "Commit" <<<"$type"; then
+        # https://blog.cuviper.com/2013/11/10/how-short-can-git-abbreviate/
+        command basename "$url" | command head -c 12
+    elif command grep -q "Release" <<<"$type"; then
+        if IFS=$'\t' read -r number prerelease < <(
+            gh api "$url" --cache=100h -H "X-GitHub-Api-Version: 2022-11-28" \
+                --jq '[.tag_name, .prerelease] | @tsv'
+        ); then
+            if "$prerelease"; then
+                echo "$number Pre-release"
+            else
+                echo "$number"
+            fi
+        fi
+    else
+        # Minimize gh API calls as they are time-consuming
+        echo "${url/*\//#}"
+    fi
+}
+
+open_in_browser() {
+    local unhashed_number comment_number="$1" repo_slug="$2" type="$3" number="$4"
+    unhashed_number=$(command tr -d "#" <<<"$number")
+    case "$type" in
+        CheckSuite)
+            $GH_ND_OPEN_CMD "https://github.com/${repo_slug}/actions" 2>/dev/null &
+            ;;
+        Commit)
+            command gh browse "$number" --repo "$repo_slug"
+            ;;
+        Discussion)
+            $GH_ND_OPEN_CMD "https://github.com/${repo_slug}/discussions/" 2>/dev/null &
+            ;;
+        Issue | PullRequest)
+            if [ -z "$comment_number" ] ||
+                [ "$comment_number" = "$unhashed_number" ] ||
+                [ "$comment_number" = "null" ]; then
+                command gh issue view "$number" --web --repo "$repo_slug"
+            else
+                $GH_ND_OPEN_CMD "https://github.com/${repo_slug}/issues/${unhashed_number}#issuecomment-${comment_number}" 2>/dev/null &
+            fi
+            ;;
+        Pre-release | Release)
+            command gh release view "$number" --web --repo "$repo_slug"
+            ;;
+        *)
+            command gh repo view --web "$repo_slug"
+            ;;
+    esac
+}
+
 notify_with_dunst() {
-    local cli_action web_action action_response
+    local cli_action action_response flags \
+        comment_number="$1" repo_slug="$2" type="$3" number="$4" reason="$5" title="$6"
 
     # Add dunstify action to open if the gh-notify extension is installed
     # and if the TERMINAL environment variable is set to a supported emulator
     # https://github.com/meiji163/gh-notify
-    if gh extension list | grep -q 'gh notify' 2>/dev/null &&
+    if gh extension list 2>/dev/null | grep -q 'gh notify' 2>/dev/null &&
         [[ "$TERMINAL" =~ ^(x-terminal-emulator|xterm|wezterm|kitty|alacritty|gnome-terminal|konsole|foot|eterm|st)$ ]]; then
         cli_action="cli,open in gh-notify"
     fi
 
-    if [ -n "$GH_BROWSER" ] || [ -n "$BROWSER" ]; then
-        web_action="web,open in browser"
-    fi
-
     action_response=$(
-        dunstify "GitHub" "new notification(s)" -a "gh-notify-desktop" \
+        dunstify "[$repo_slug] $type: $reason" "$title" -a "gh-notify-desktop" \
             ${ICON:+-i "$ICON"} \
-            ${web_action:+-A "$web_action"} \
+            -A "web,open in browser" \
             ${cli_action:+-A "$cli_action"}
     )
 
-    if [ "$PARTICIPATING" = true ]; then
-        query+="reason%3Aparticipating&"
-        flags+=" -p"
-    fi
-
-    if [ "$ALL" = false ]; then
-        query+="is%3Aunread"
-    else
-        flags+=" -a"
-    fi
-
     case "$action_response" in
-        web) ${GH_BROWSER:-$BROWSER} "https://github.com/notifications?query=$query" ;;
-        cli) $TERMINAL -e sh -c "gh notify$flags" ;;
+        web)
+            open_in_browser "$comment_number" "$repo_slug" "$type" "$number"
+            ;;
+        cli)
+            [ "$PARTICIPATING" = true ] && flags+=" -p"
+            [ "$ALL" = true ] && flags+=" -a"
+            $TERMINAL -e sh -c "gh notify$flags"
+            ;;
     esac
 }
 
@@ -160,6 +259,6 @@ done
 
 shift "$((OPTIND - 1))"
 
-check_poll_interval
+[ -z "$DEBUG" ] && check_poll_interval
 check_response_headers
-notify_with_dunst
+process_page "$body"
