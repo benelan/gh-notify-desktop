@@ -18,9 +18,6 @@ root = true
 [*.{mail,sh,bash}]
     max_line_length = 80
 
-[*.{lua,md}]
-    max_line_length = 100
-
 [COMMIT_EDITMSG]
     max_line_length = 72
 
