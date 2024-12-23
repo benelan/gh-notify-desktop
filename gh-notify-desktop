@@ -110,6 +110,8 @@ check_response_headers() {
     headers="$(awk -v 'RS=\r\n\r\n' 'NR==1 {print}' <<<"$resp")"
     body="$(awk -v 'RS=\r\n\r\n' 'NR==2 {print}' <<<"$resp")"
 
+   echo "$body" > "$DATA_DIR/body"
+
     status_code="$(head -n1 <<<"$headers" | cut -d ' ' -f2)"
 
     last_modified="$(
