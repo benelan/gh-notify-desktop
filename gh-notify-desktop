@@ -33,20 +33,29 @@ ALL=false
 _has() { command -v "$1" >/dev/null 2>&1; }
 
 if [ -z "$GH_ND_OPEN_CMD" ]; then
-    if _has wslview; then
+    if [ -n "$GH_BROWSER" ]; then
+        GH_ND_OPEN_CMD="$GH_BROWSER" # User override
+    elif _has wslview; then
         GH_ND_OPEN_CMD="wslview" # Windows (WSL)
     elif _has xdg-open; then
         GH_ND_OPEN_CMD="xdg-open" # Linux
     elif _has open; then
         GH_ND_OPEN_CMD="open" # OSX
     else
-        GH_ND_OPEN_CMD="${GH_BROWSER:-$BROWSER}" # Fallback
+        GH_ND_OPEN_CMD="$BROWSER" # Fallback
     fi
 fi
 
 die() {
     echo "Something went wrong..." >&2
     exit 1
+}
+
+gh_rest_api() {
+    command gh api \
+        -H "Accept: application/vnd.github+json" \
+        -H "X-GitHub-Api-Version: 2022-11-28" \
+        "$@"
 }
 
 check_poll_interval() {
@@ -70,13 +79,6 @@ check_poll_interval() {
     fi
 
     echo "$now" >"$DATA_DIR/last-checked"
-}
-
-gh_rest_api() {
-    command gh api \
-        -H "Accept: application/vnd.github+json" \
-        -H "X-GitHub-Api-Version: 2022-11-28" \
-        "$@"
 }
 
 check_response_headers() {
@@ -107,6 +109,8 @@ check_response_headers() {
 
     headers="$(awk -v 'RS=\r\n\r\n' 'NR==1 {print}' <<<"$resp")"
     body="$(awk -v 'RS=\r\n\r\n' 'NR==2 {print}' <<<"$resp")"
+
+   echo "$body" > "$DATA_DIR/body"
 
     status_code="$(head -n1 <<<"$headers" | cut -d ' ' -f2)"
 
