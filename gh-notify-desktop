@@ -233,9 +233,9 @@ notify_with_dunst() {
         dunstify "[$repo_slug] $type: $reason" "$title" -a "gh-notify-desktop" \
             ${ICON:+-i "$ICON"} \
             -A "web,open in browser" \
-            -A "read,mark thread as read" \
-            -A "done,mark thread as done" \
-            -A "unsub,unsubscribe from thread" \
+            -A "read,mark as read" \
+            -A "done,mark as done" \
+            -A "unsub,unsubscribe" \
             ${cli_action:+-A "$cli_action"}
     )
 
