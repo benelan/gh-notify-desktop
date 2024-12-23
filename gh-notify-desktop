@@ -274,4 +274,3 @@ shift "$((OPTIND - 1))"
 
 [ -z "$DEBUG" ] && check_poll_interval
 check_response_headers
-process_page "$body"
