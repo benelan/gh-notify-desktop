@@ -27,6 +27,10 @@ elif [ -f "$EXTENSION_DIR/img/github-mark-white.svg" ]; then
     ICON="$EXTENSION_DIR/img/github-mark-white.svg"
 fi
 
+if ! [[ $GH_ND_MAX =~ ^[0-9]+$ ]] || [[ $GH_ND_MAX -gt 50 ]]; then
+    GH_ND_MAX=50
+fi
+
 PARTICIPATING=false
 ALL=false
 
@@ -81,7 +85,7 @@ check_poll_interval() {
     echo "$now" >"$DATA_DIR/last-checked"
 }
 
-check_response_headers() {
+get_notifications() {
     local headers status_code last_modified poll_interval
 
     resp="$(
@@ -102,7 +106,7 @@ check_response_headers() {
             } | [
             .thread_id, .thread_state, .comment_number,
             .repo_slug, .type, .url, .reason, .title
-        ] | @tsv' 2>"$DATA_DIR/log"
+        ] | @tsv' 2>>"$DATA_DIR/log"
     )"
 
     [ -n "$DEBUG" ] && echo "$resp"
@@ -133,18 +137,38 @@ check_response_headers() {
         echo "$poll_interval" >"$DATA_DIR/poll-interval"
     fi
 
-    if [ "$status_code" = "200" ]; then
-        echo "There are new GitHub notifications" >&2
-        # don't create a desktop notification if the io streams are a tty
-        [ -z "$DEBUG" ] && [ -t 0 ] && [ -t 1 ] && exit 0
-        process_page "$body"
-    elif [ "$status_code" = "304" ]; then
-        echo "Up to date on GitHub notifications" >&2
-        exit 2
-    else
-        echo "GitHub responded with status code $status_code" >&2
-        exit 1
-    fi
+    case $status_code in
+        200)
+            # don't create a desktop notification if the io streams are a tty
+            if [ -z "$DEBUG" ] && [ -t 0 ] && [ -t 1 ]; then
+                echo "$body"
+                exit 0
+            fi
+
+            # show one notification if the count is more than the specified max
+            if [[ $(wc -l <<<"$body") -ge $GH_ND_MAX ]]; then
+                dunst_notify_max &
+            # otherwise, create a desktop notification per github notification
+            else
+                process_page "$body"
+            fi
+            ;;
+        304)
+            echo "Up to date on GitHub notifications" >&2
+            exit 3
+            ;;
+        401)
+            printf '%s\n' \
+                'Error: Requires authentication.' \
+                'Ensure the gh token has notifications privileges:' \
+                '$ gh auth refresh -h github.com -s notifications' >&2
+            exit 4
+            ;;
+        *)
+            echo "GitHub responded with status code $status_code" >&2
+            exit 2
+            ;;
+    esac
 }
 
 # Processes a page of GitHub notifications, extracting and formatting relevant details.
@@ -161,7 +185,7 @@ process_page() {
             fi
         fi
 
-        notify_with_dunst "$thread_id" "$thread_state" "$comment_number" "$repo_slug" \
+        dunst_notify_thread "$thread_id" "$thread_state" "$comment_number" "$repo_slug" \
             "${modified_type:-$type}" "$number" "$reason" "$title" &
     done <<<"$page"
 }
@@ -221,9 +245,8 @@ open_in_browser() {
     esac
 }
 
-notify_with_dunst() {
-    local cli_action action_response flags thread_id="$1" thread_state="$2" \
-        comment_number="$3" repo_slug="$4" type="$5" number="$6" reason="$7" title="$8"
+dunst_notify_max() {
+    local cli_action action_response flags="" query=""
 
     # Add dunstify action to open if the gh-notify extension is installed
     # and if the TERMINAL environment variable is set to a supported emulator
@@ -234,33 +257,48 @@ notify_with_dunst() {
     fi
 
     action_response=$(
+        dunstify "GitHub Notifications" "There are ${GH_ND_MAX}+ new GitHub notifications" \
+            -a "gh-notify-desktop" \
+            ${ICON:+-i "$ICON"} \
+            -A "web,open in browser" \
+            ${cli_action:+-A "$cli_action"}
+    )
+
+    if [ "$PARTICIPATING" = true ]; then
+        query+="reason%3Aparticipating&"
+        flags+=" -p"
+    fi
+
+    if [ "$ALL" = false ]; then
+        query+="is%3Aunread"
+    else
+        flags+=" -a"
+    fi
+
+    case "$action_response" in
+        web) ${GH_ND_OPEN_CMD} "https://github.com/notifications?query=$query" ;;
+        cli) $TERMINAL -e sh -c "gh notify$flags" ;;
+    esac
+}
+
+dunst_notify_thread() {
+    local cli_action action_response flags thread_id="$1" thread_state="$2" \
+        comment_number="$3" repo_slug="$4" type="$5" number="$6" reason="$7" title="$8"
+
+    action_response=$(
         dunstify "[$repo_slug] $type: $reason" "$title" -a "gh-notify-desktop" \
             ${ICON:+-i "$ICON"} \
             -A "web,open in browser" \
             -A "read,mark as read" \
             -A "done,mark as done" \
-            -A "unsub,unsubscribe" \
-            ${cli_action:+-A "$cli_action"}
+            -A "unsub,unsubscribe"
     )
 
     case "$action_response" in
-        read)
-            gh_rest_api --method PATCH "/notifications/threads/$thread_id"
-            ;;
-        done)
-            gh_rest_api --method DELETE "/notifications/threads/$thread_id"
-            ;;
-        unsub)
-            gh_rest_api --method DELETE "/notifications/threads/$thread_id/subscription"
-            ;;
-        web)
-            open_in_browser "$comment_number" "$repo_slug" "$type" "$number"
-            ;;
-        cli)
-            [ "$PARTICIPATING" = true ] && flags+=" -p"
-            [ "$ALL" = true ] && flags+=" -a"
-            $TERMINAL -e sh -c "gh notify$flags"
-            ;;
+        web) open_in_browser "$comment_number" "$repo_slug" "$type" "$number" ;;
+        read) gh_rest_api --method PATCH "/notifications/threads/$thread_id" ;;
+        done) gh_rest_api --method DELETE "/notifications/threads/$thread_id" ;;
+        unsub) gh_rest_api --method DELETE "/notifications/threads/$thread_id/subscription" ;;
     esac
 }
 
@@ -277,4 +315,4 @@ done
 shift "$((OPTIND - 1))"
 
 [ -z "$DEBUG" ] && check_poll_interval
-check_response_headers
+get_notifications
