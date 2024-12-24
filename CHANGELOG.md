@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.0](https://github.com/benelan/gh-notify-desktop/compare/v0.1.0...v0.2.0) (2024-12-24)
+
+
+### Features
+
+* Add option for max notifications to show at once ([#7](https://github.com/benelan/gh-notify-desktop/issues/7)) ([0b1027c](https://github.com/benelan/gh-notify-desktop/commit/0b1027c5a3bbee26376348b4967778fcec1dd889))
+* Add read/done/unsub dunst actions ([#3](https://github.com/benelan/gh-notify-desktop/issues/3)) ([447c38a](https://github.com/benelan/gh-notify-desktop/commit/447c38aa8ac36c496cb15b11fc18ef04cd95fefb))
+* Prioritize GH_BROWSER for opening links ([#5](https://github.com/benelan/gh-notify-desktop/issues/5)) ([5139e4b](https://github.com/benelan/gh-notify-desktop/commit/5139e4ba21b574512dd5318413bfb507d5b718e6))
+
+
+### Bug Fixes
+
+* Resolve duplicate notifications being generated ([#6](https://github.com/benelan/gh-notify-desktop/issues/6)) ([09576c1](https://github.com/benelan/gh-notify-desktop/commit/09576c13e902277580386e2a01c1355d4fc773e4))
+
 ## 0.1.0 (2024-12-16)
 
 
