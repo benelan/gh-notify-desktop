@@ -215,7 +215,7 @@ process_url() {
     fi
 }
 
-get_thread_url() {
+construct_url() {
     local unhashed_number thread_id="$1" thread_state="$2" comment_number="$1" repo_slug="$2" type="$3" number="$4"
     unhashed_number=$(command tr -d "#" <<<"$number")
     case "$type" in
@@ -246,14 +246,6 @@ get_thread_url() {
     esac
 }
 
-open_in_browser() {
-    local thread_url
-    thread_url=
-    if [ -n "$thread_url" ]; then
-        $GH_ND_OPEN_CMD "$(get_thread_url)"
-    fi
-}
-
 dunst_notify_max() {
     local cli_action action_response flags="" query=""
 
@@ -273,15 +265,28 @@ dunst_notify_max() {
             ${cli_action:+-A "$cli_action"}
     )
 
+    if [ "$PARTICIPATING" = true ]; then
+        query+="reason%3Aparticipating&"
+        flags+=" -p"
+    fi
+
+    if [ "$ALL" = false ]; then
+        query+="is%3Aunread"
+    else
+        flags+=" -a"
+    fi
+
     case "$action_response" in
-        web) ${GH_ND_OPEN_CMD} "$NOTIFICATIONS_URL" ;;
+        web) ${GH_ND_OPEN_CMD} "https://github.com/notifications?query=$query" ;;
         cli) $TERMINAL -e sh -c "gh notify$flags" ;;
     esac
 }
 
 notify_thread() {
-    local cli_action action_response flags thread_id="$1" thread_state="$2" \
+    local cli_action action_response flags url thread_id="$1" thread_state="$2" \
         comment_number="$3" repo_slug="$4" type="$5" number="$6" reason="$7" title="$8"
+
+    url="$(construct_url "$comment_number" "$repo_slug" "$type" "$number")"
 
     if _has dunstify; then
         action_response=$(
@@ -293,16 +298,16 @@ notify_thread() {
                 -A "unsub,unsubscribe"
         )
         case "$action_response" in
-            web) ${GH_ND_OPEN_CMD} "$(get_thread_url "$comment_number" "$repo_slug" "$type" "$number")" ;;
+            web) ${GH_ND_OPEN_CMD} "${url}" ;;
             read) gh_rest_api --method PATCH "/notifications/threads/$thread_id" ;;
             done) gh_rest_api --method DELETE "/notifications/threads/$thread_id" ;;
             unsub) gh_rest_api --method DELETE "/notifications/threads/$thread_id/subscription" ;;
         esac
     elif _has notify-send; then
-        notify-send "[$repo_slug] $type: $reason" "$title\n$NOTIFICATIONS_URL" \
+        notify-send "[$repo_slug] $type: $reason" "$title\n\n${url}" \
             -a "gh-notify-desktop" ${ICON:+-i "$ICON"}
     elif _has osascript; then
-        osascript -e "display notification \"$title\n$NOTIFICATIONS_URL\" with title \"[$repo_slug] $type: $reason\""
+        osascript -e "display notification \"$title\n\n$url\" with title \"[$repo_slug] $type: $reason\""
     else
         die "notification support not found." \
             "Supports: dunstify, notify-send, osascript"
@@ -320,19 +325,6 @@ while getopts i:aph opt; do
 done
 
 shift "$((OPTIND - 1))"
-
-if [ "$PARTICIPATING" = true ]; then
-    query+="reason%3Aparticipating&"
-    flags+=" -p"
-fi
-
-if [ "$ALL" = false ]; then
-    query+="is%3Aunread"
-else
-    flags+=" -a"
-fi
-
-NOTIFICATIONS_URL="https://github.com/notifications?query=$query"
 
 [ -z "$DEBUG" ] && check_poll_interval
 get_notifications
