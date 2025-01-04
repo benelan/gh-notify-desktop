@@ -52,6 +52,7 @@ fi
 
 die() {
     echo "Something went wrong..." >&2
+    printf '%s/n' "$@"
     exit 1
 }
 
@@ -185,7 +186,7 @@ process_page() {
             fi
         fi
 
-        dunst_notify_thread "$thread_id" "$thread_state" "$comment_number" "$repo_slug" \
+        notify_thread "$thread_id" "$thread_state" "$comment_number" "$repo_slug" \
             "${modified_type:-$type}" "$number" "$reason" "$title" &
     done <<<"$page"
 }
@@ -214,35 +215,43 @@ process_url() {
     fi
 }
 
-open_in_browser() {
+get_thread_url() {
     local unhashed_number thread_id="$1" thread_state="$2" comment_number="$1" repo_slug="$2" type="$3" number="$4"
     unhashed_number=$(command tr -d "#" <<<"$number")
     case "$type" in
         CheckSuite)
-            $GH_ND_OPEN_CMD "https://github.com/${repo_slug}/actions" 2>/dev/null &
+            echo "https://github.com/${repo_slug}/actions"
             ;;
         Commit)
-            command gh browse "$number" --repo "$repo_slug"
+            echo "https://github.com/${repo_slug}/commit/${number}"
             ;;
         Discussion)
-            $GH_ND_OPEN_CMD "https://github.com/${repo_slug}/discussions/" 2>/dev/null &
+            echo "https://github.com/${repo_slug}/discussions/"
+            ;;
+        Pre-release | Release)
+            echo "https://github.com/${repo_slug}/releases/tag/${number}"
             ;;
         Issue | PullRequest)
             if [ -z "$comment_number" ] ||
                 [ "$comment_number" = "$unhashed_number" ] ||
                 [ "$comment_number" = "null" ]; then
-                command gh issue view "$number" --web --repo "$repo_slug"
+                echo "https://github.com/${repo_slug}/issues/${unhashed_number}"
             else
-                $GH_ND_OPEN_CMD "https://github.com/${repo_slug}/issues/${unhashed_number}#issuecomment-${comment_number}" 2>/dev/null &
+                echo "https://github.com/${repo_slug}/issues/${unhashed_number}#issuecomment-${comment_number}"
             fi
             ;;
-        Pre-release | Release)
-            command gh release view "$number" --web --repo "$repo_slug"
-            ;;
         *)
-            command gh repo view --web "$repo_slug"
+            echo "https://github.com/${repo_slug}"
             ;;
     esac
+}
+
+open_in_browser() {
+    local thread_url
+    thread_url=
+    if [ -n "$thread_url" ]; then
+        $GH_ND_OPEN_CMD "$(get_thread_url)"
+    fi
 }
 
 dunst_notify_max() {
@@ -264,42 +273,40 @@ dunst_notify_max() {
             ${cli_action:+-A "$cli_action"}
     )
 
-    if [ "$PARTICIPATING" = true ]; then
-        query+="reason%3Aparticipating&"
-        flags+=" -p"
-    fi
-
-    if [ "$ALL" = false ]; then
-        query+="is%3Aunread"
-    else
-        flags+=" -a"
-    fi
-
     case "$action_response" in
-        web) ${GH_ND_OPEN_CMD} "https://github.com/notifications?query=$query" ;;
+        web) ${GH_ND_OPEN_CMD} "$NOTIFICATIONS_URL" ;;
         cli) $TERMINAL -e sh -c "gh notify$flags" ;;
     esac
 }
 
-dunst_notify_thread() {
+notify_thread() {
     local cli_action action_response flags thread_id="$1" thread_state="$2" \
         comment_number="$3" repo_slug="$4" type="$5" number="$6" reason="$7" title="$8"
 
-    action_response=$(
-        dunstify "[$repo_slug] $type: $reason" "$title" -a "gh-notify-desktop" \
-            ${ICON:+-i "$ICON"} \
-            -A "web,open in browser" \
-            -A "read,mark as read" \
-            -A "done,mark as done" \
-            -A "unsub,unsubscribe"
-    )
-
-    case "$action_response" in
-        web) open_in_browser "$comment_number" "$repo_slug" "$type" "$number" ;;
-        read) gh_rest_api --method PATCH "/notifications/threads/$thread_id" ;;
-        done) gh_rest_api --method DELETE "/notifications/threads/$thread_id" ;;
-        unsub) gh_rest_api --method DELETE "/notifications/threads/$thread_id/subscription" ;;
-    esac
+    if _has dunstify; then
+        action_response=$(
+            dunstify "[$repo_slug] $type: $reason" "$title\n$NOTIFICATIONS_URL" -a "gh-notify-desktop" \
+                ${ICON:+-i "$ICON"} \
+                -A "web,open in browser" \
+                -A "read,mark as read" \
+                -A "done,mark as done" \
+                -A "unsub,unsubscribe"
+        )
+        case "$action_response" in
+            web) ${GH_ND_OPEN_CMD} "$(get_thread_url "$comment_number" "$repo_slug" "$type" "$number")" ;;
+            read) gh_rest_api --method PATCH "/notifications/threads/$thread_id" ;;
+            done) gh_rest_api --method DELETE "/notifications/threads/$thread_id" ;;
+            unsub) gh_rest_api --method DELETE "/notifications/threads/$thread_id/subscription" ;;
+        esac
+    elif _has notify-send; then
+        notify-send "[$repo_slug] $type: $reason" "$title\n$NOTIFICATIONS_URL" \
+            -a "gh-notify-desktop" ${ICON:+-i "$ICON"}
+    elif _has osascript; then
+        osascript -e "display notification \"$title\n$NOTIFICATIONS_URL\" with title \"[$repo_slug] $type: $reason\""
+    else
+        die "notification support not found." \
+            "Supports: dunstify, notify-send, osascript"
+    fi
 }
 
 while getopts i:aph opt; do
@@ -313,6 +320,19 @@ while getopts i:aph opt; do
 done
 
 shift "$((OPTIND - 1))"
+
+if [ "$PARTICIPATING" = true ]; then
+    query+="reason%3Aparticipating&"
+    flags+=" -p"
+fi
+
+if [ "$ALL" = false ]; then
+    query+="is%3Aunread"
+else
+    flags+=" -a"
+fi
+
+NOTIFICATIONS_URL="https://github.com/notifications?query=$query"
 
 [ -z "$DEBUG" ] && check_poll_interval
 get_notifications
