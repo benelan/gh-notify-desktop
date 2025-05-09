@@ -109,12 +109,12 @@ get_notifications() {
         ] | @tsv' 2>>"$DATA_DIR/log"
     )"
 
-    [ -n "$DEBUG" ] && echo "$resp"
+    [ -n "$DEBUG" ] && echo "$resp" >&2
 
     headers="$(awk -v 'RS=\r\n\r\n' 'NR==1 {print}' <<<"$resp")"
     body="$(awk -v 'RS=\r\n\r\n' 'NR==2 {print}' <<<"$resp")"
 
-    echo "$body" >"$DATA_DIR/body"
+    [ -n "$body" ] && echo "$body" >"$DATA_DIR/body"
 
     status_code="$(head -n1 <<<"$headers" | cut -d ' ' -f2)"
 
@@ -141,7 +141,7 @@ get_notifications() {
         200)
             # don't create a desktop notification if the io streams are a tty
             if [ -z "$DEBUG" ] && [ -t 0 ] && [ -t 1 ]; then
-                echo "$body"
+                echo "$body" >&2
                 exit 0
             fi
 
