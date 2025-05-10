@@ -163,7 +163,7 @@ get_notifications() {
 
             # show one notification if the count is more than the specified max
             if [[ $(wc -l <<<"$body") -ge $GH_ND_MAX ]]; then
-                dunst_notify_max &
+                notify_max &
             # otherwise, create a desktop notification per github notification
             else
                 process_page "$body"
@@ -266,55 +266,64 @@ construct_url() {
     esac
 }
 
-dunst_notify_max() {
-    local cli_action action_response terminal flags="" query=""
+notify_max() {
+    local title="GitHub Notifications"
+    local body="There are ${GH_ND_MAX}+ new GitHub notifications"
 
-    # Add dunstify action to open if the gh-notify extension is installed
-    # https://github.com/meiji163/gh-notify
-    if gh extension list 2>/dev/null | grep -q 'gh notify' 2>/dev/null; then
-        cli_action="cli,open in gh-notify"
+    if _has dunst; then
+        local cli_action action_response terminal flags="" query=""
 
-        # determine which terminal to use for opening gh-notify
-        if _has x-terminal-emulator; then
-            terminal=x-terminal-emulator
-        elif _has wezterm; then
-            terminal=wezterm
-        elif _has alacritty; then
-            terminal=alacritty
-        elif _has kitty; then
-            terminal=kitty
-        elif _has ghostty && [ "$(uname -s)" = "Linux" ]; then
-            terminal=ghostty
-        elif _has foot && [ "$XDG_SESSION_TYPE" = "wayland" ]; then
-            terminal=foot
-        else
-            unset cli_action
+        # Add dunstify action to open if the gh-notify extension is installed
+        # https://github.com/meiji163/gh-notify
+        if gh extension list 2>/dev/null | grep -q 'gh notify' 2>/dev/null; then
+            cli_action="cli,open in gh-notify"
+
+            # determine which terminal to use for opening gh-notify
+            if _has x-terminal-emulator; then
+                terminal=x-terminal-emulator
+            elif _has wezterm; then
+                terminal=wezterm
+            elif _has alacritty; then
+                terminal=alacritty
+            elif _has kitty; then
+                terminal=kitty
+            elif _has ghostty && [ "$(uname -s)" = "Linux" ]; then
+                terminal=ghostty
+            elif _has foot && [ "$XDG_SESSION_TYPE" = "wayland" ]; then
+                terminal=foot
+            else
+                unset cli_action
+            fi
         fi
-    fi
 
-    action_response=$(
-        dunstify "GitHub Notifications" "There are ${GH_ND_MAX}+ new GitHub notifications" \
-            -a "gh-notify-desktop" \
-            ${ICON:+-i "$ICON"} \
-            -A "web,open in browser" \
-            ${cli_action:+-A "$cli_action"}
-    )
+        action_response=$(
+            dunstify "$title" "$body" -a "gh-notify-desktop" ${ICON:+-i "$ICON"} \
+                -A "web,open in browser" ${cli_action:+-A "$cli_action"}
+        )
 
-    if [ "$PARTICIPATING" = true ]; then
-        query+="reason%3Aparticipating&"
-        flags+=" -p"
-    fi
+        if [ "$PARTICIPATING" = true ]; then
+            query+="reason%3Aparticipating&"
+            flags+=" -p"
+        fi
 
-    if [ "$ALL" = false ]; then
-        query+="is%3Aunread"
+        if [ "$ALL" = false ]; then
+            query+="is%3Aunread"
+        else
+            flags+=" -a"
+        fi
+
+        case "$action_response" in
+            web) ${GH_ND_OPEN_CMD} "https://github.com/notifications?query=$query" ;;
+            cli) $terminal -e sh -c "gh notify$flags" ;;
+        esac
+    elif _has notify-send; then
+        notify-send "$title" "$body" -a "gh-notify-desktop" ${ICON:+-i "$ICON"}
+    elif _has osascript; then
+        osascript -e "display notification \"$body\" with title \"$title\""
     else
-        flags+=" -a"
+        die "notification support not found." \
+            "Supports: dunstify, notify-send, osascript"
     fi
-
-    case "$action_response" in
-        web) ${GH_ND_OPEN_CMD} "https://github.com/notifications?query=$query" ;;
-        cli) $terminal -e sh -c "gh notify$flags" ;;
-    esac
 }
 
 notify_thread() {
