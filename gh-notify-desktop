@@ -85,6 +85,21 @@ check_poll_interval() {
     echo "$now" >"$DATA_DIR/last-checked"
 }
 
+get_unread_notifications_count() {
+    local count
+
+    count="$(
+        gh_rest_api "/notifications?participating=$PARTICIPATING" \
+            --paginate --jq 'length' | awk '{s+=$1} END {print s}'
+    )"
+
+    [ -n "$DEBUG" ] && echo "unread notification count: $count" >&2
+
+    if [[ $count =~ ^[0-9]+$ ]]; then
+        echo "$count" >"$DATA_DIR/unread_count"
+    fi
+}
+
 get_notifications() {
     local headers status_code last_modified poll_interval
 
@@ -151,6 +166,11 @@ get_notifications() {
             # otherwise, create a desktop notification per github notification
             else
                 process_page "$body"
+            fi
+
+            # get the count of unread notifications for use in a statusbar
+            if [ -n "$COUNT_UNREAD" ]; then
+                get_unread_notifications_count
             fi
             ;;
         304)
@@ -317,10 +337,12 @@ dunst_notify_thread() {
     esac
 }
 
-while getopts i:aph opt; do
+while getopts i:Ccaph opt; do
     case $opt in
         a) ALL=true ;;
         p) PARTICIPATING=true ;;
+        c) COUNT_UNREAD=true ;;
+        C) ONLY_COUNT_UNREAD=true ;;
         i) [ -f "$OPTARG" ] && ICON="$OPTARG" ;;
         h) die ;;
         *) die ;;
@@ -328,6 +350,12 @@ while getopts i:aph opt; do
 done
 
 shift "$((OPTIND - 1))"
+
+if [ -n "$ONLY_COUNT_UNREAD" ]; then
+    get_unread_notifications_count
+    cat "$DATA_DIR/unread_count"
+    exit 0
+fi
 
 [ -z "$DEBUG" ] && check_poll_interval
 get_notifications
