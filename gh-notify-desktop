@@ -270,7 +270,7 @@ notify_max() {
     local title="GitHub Notifications"
     local body="There are ${GH_ND_MAX}+ new GitHub notifications"
 
-    if _has dunst; then
+    if _has dunstify; then
         local cli_action action_response terminal flags="" query=""
 
         # Add dunstify action to open if the gh-notify extension is installed
@@ -332,9 +332,12 @@ notify_thread() {
 
     url="$(construct_url "$comment_number" "$repo_slug" "$type" "$number")"
 
+    local notif_title="[$repo_slug] $type: $reason"
+    local notif_body="$title\n\n${url}"
+
     if _has dunstify; then
         action_response=$(
-            dunstify "[$repo_slug] $type: $reason" "$title\n$NOTIFICATIONS_URL" -a "gh-notify-desktop" \
+            dunstify "$notif_title" "$notif_body" -a "gh-notify-desktop" \
                 ${ICON:+-i "$ICON"} \
                 -A "web,open in browser" \
                 -A "read,mark as read" \
@@ -348,10 +351,10 @@ notify_thread() {
             unsub) gh_rest_api --method DELETE "/notifications/threads/$thread_id/subscription" ;;
         esac
     elif _has notify-send; then
-        notify-send "[$repo_slug] $type: $reason" "$title\n\n${url}" \
+        notify-send "$notif_title" "$notif_body" \
             -a "gh-notify-desktop" ${ICON:+-i "$ICON"}
     elif _has osascript; then
-        osascript -e "display notification \"$title\n\n$url\" with title \"[$repo_slug] $type: $reason\""
+        osascript -e "display notification \"$notif_body\" with title \"$notif_title\""
     else
         die "notification support not found." \
             "Supports: dunstify, notify-send, osascript"
