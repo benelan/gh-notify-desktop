@@ -121,7 +121,7 @@ get_notifications() {
             } | [
             .thread_id, .thread_state, .comment_number,
             .repo_slug, .type, .url, .reason, .title
-        ] | @tsv' 2>>"$DATA_DIR/log"
+        ] | @tsv' 2>/dev/null
     )"
 
     [ -n "$DEBUG" ] && echo "$resp" >&2
