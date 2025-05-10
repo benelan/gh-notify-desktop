@@ -5,7 +5,7 @@
 # https://docs.github.com/en/rest/activity/notifications?apiVersion=2022-11-28
 #
 # Usage: run the extension in a systemd timer or cronjob, for example:
-# */2 * * * * bash -l -c 'gh notify-desktop -p >> ~/.local/state/gh-notify-desktop/log 2>&1'
+# */2 * * * * bash -l -c 'gh notify-desktop -p'
 
 : "${DISPLAY=:0}"
 : "${XAUTHORITY=~/.Xauthority}"
@@ -86,6 +86,21 @@ check_poll_interval() {
     echo "$now" >"$DATA_DIR/last-checked"
 }
 
+get_unread_notifications_count() {
+    local count
+
+    count="$(
+        gh_rest_api "/notifications?participating=$PARTICIPATING" \
+            --paginate --jq 'length' | awk '{s+=$1} END {print s}'
+    )"
+
+    [ -n "$DEBUG" ] && echo "unread notification count: $count" >&2
+
+    if [[ $count =~ ^[0-9]+$ ]]; then
+        echo "$count" >"$DATA_DIR/unread_count"
+    fi
+}
+
 get_notifications() {
     local headers status_code last_modified poll_interval
 
@@ -110,12 +125,12 @@ get_notifications() {
         ] | @tsv' 2>>"$DATA_DIR/log"
     )"
 
-    [ -n "$DEBUG" ] && echo "$resp"
+    [ -n "$DEBUG" ] && echo "$resp" >&2
 
     headers="$(awk -v 'RS=\r\n\r\n' 'NR==1 {print}' <<<"$resp")"
     body="$(awk -v 'RS=\r\n\r\n' 'NR==2 {print}' <<<"$resp")"
 
-    echo "$body" >"$DATA_DIR/body"
+    [ -n "$body" ] && echo "$body" >"$DATA_DIR/body"
 
     status_code="$(head -n1 <<<"$headers" | cut -d ' ' -f2)"
 
@@ -142,7 +157,7 @@ get_notifications() {
         200)
             # don't create a desktop notification if the io streams are a tty
             if [ -z "$DEBUG" ] && [ -t 0 ] && [ -t 1 ]; then
-                echo "$body"
+                echo "$body" >&2
                 exit 0
             fi
 
@@ -152,6 +167,11 @@ get_notifications() {
             # otherwise, create a desktop notification per github notification
             else
                 process_page "$body"
+            fi
+
+            # get the count of unread notifications for use in a statusbar
+            if [ -n "$COUNT_UNREAD" ]; then
+                get_unread_notifications_count
             fi
             ;;
         304)
@@ -247,14 +267,29 @@ construct_url() {
 }
 
 dunst_notify_max() {
-    local cli_action action_response flags="" query=""
+    local cli_action action_response terminal flags="" query=""
 
     # Add dunstify action to open if the gh-notify extension is installed
-    # and if the TERMINAL environment variable is set to a supported emulator
     # https://github.com/meiji163/gh-notify
-    if gh extension list 2>/dev/null | grep -q 'gh notify' 2>/dev/null &&
-        [[ "$TERMINAL" =~ ^(x-terminal-emulator|xterm|wezterm|kitty|alacritty|gnome-terminal|konsole|foot|eterm|st)$ ]]; then
+    if gh extension list 2>/dev/null | grep -q 'gh notify' 2>/dev/null; then
         cli_action="cli,open in gh-notify"
+
+        # determine which terminal to use for opening gh-notify
+        if _has x-terminal-emulator; then
+            terminal=x-terminal-emulator
+        elif _has wezterm; then
+            terminal=wezterm
+        elif _has alacritty; then
+            terminal=alacritty
+        elif _has kitty; then
+            terminal=kitty
+        elif _has ghostty && [ "$(uname -s)" = "Linux" ]; then
+            terminal=ghostty
+        elif _has foot && [ "$XDG_SESSION_TYPE" = "wayland" ]; then
+            terminal=foot
+        else
+            unset cli_action
+        fi
     fi
 
     action_response=$(
@@ -278,7 +313,7 @@ dunst_notify_max() {
 
     case "$action_response" in
         web) ${GH_ND_OPEN_CMD} "https://github.com/notifications?query=$query" ;;
-        cli) $TERMINAL -e sh -c "gh notify$flags" ;;
+        cli) $terminal -e sh -c "gh notify$flags" ;;
     esac
 }
 
@@ -314,10 +349,12 @@ notify_thread() {
     fi
 }
 
-while getopts i:aph opt; do
+while getopts i:Ccaph opt; do
     case $opt in
         a) ALL=true ;;
         p) PARTICIPATING=true ;;
+        c) COUNT_UNREAD=true ;;
+        C) ONLY_COUNT_UNREAD=true ;;
         i) [ -f "$OPTARG" ] && ICON="$OPTARG" ;;
         h) die ;;
         *) die ;;
@@ -325,6 +362,12 @@ while getopts i:aph opt; do
 done
 
 shift "$((OPTIND - 1))"
+
+if [ -n "$ONLY_COUNT_UNREAD" ]; then
+    get_unread_notifications_count
+    cat "$DATA_DIR/unread_count"
+    exit 0
+fi
 
 [ -z "$DEBUG" ] && check_poll_interval
 get_notifications
