@@ -5,7 +5,7 @@
 # https://docs.github.com/en/rest/activity/notifications?apiVersion=2022-11-28
 #
 # Usage: run the extension in a systemd timer or cronjob, for example:
-# */2 * * * * bash -l -c 'gh notify-desktop -p >> ~/.local/state/gh-notify-desktop/log 2>&1'
+# */2 * * * * bash -l -c 'gh notify-desktop -p'
 
 : "${DISPLAY=:0}"
 : "${XAUTHORITY=~/.Xauthority}"
@@ -246,14 +246,29 @@ open_in_browser() {
 }
 
 dunst_notify_max() {
-    local cli_action action_response flags="" query=""
+    local cli_action action_response terminal flags="" query=""
 
     # Add dunstify action to open if the gh-notify extension is installed
-    # and if the TERMINAL environment variable is set to a supported emulator
     # https://github.com/meiji163/gh-notify
-    if gh extension list 2>/dev/null | grep -q 'gh notify' 2>/dev/null &&
-        [[ "$TERMINAL" =~ ^(x-terminal-emulator|xterm|wezterm|kitty|alacritty|gnome-terminal|konsole|foot|eterm|st)$ ]]; then
+    if gh extension list 2>/dev/null | grep -q 'gh notify' 2>/dev/null; then
         cli_action="cli,open in gh-notify"
+
+        # determine which terminal to use for opening gh-notify
+        if _has x-terminal-emulator; then
+            terminal=x-terminal-emulator
+        elif _has wezterm; then
+            terminal=wezterm
+        elif _has alacritty; then
+            terminal=alacritty
+        elif _has kitty; then
+            terminal=kitty
+        elif _has ghostty && [ "$(uname -s)" = "Linux" ]; then
+            terminal=ghostty
+        elif _has foot && [ "$XDG_SESSION_TYPE" = "wayland" ]; then
+            terminal=foot
+        else
+            unset cli_action
+        fi
     fi
 
     action_response=$(
@@ -277,7 +292,7 @@ dunst_notify_max() {
 
     case "$action_response" in
         web) ${GH_ND_OPEN_CMD} "https://github.com/notifications?query=$query" ;;
-        cli) $TERMINAL -e sh -c "gh notify$flags" ;;
+        cli) $terminal -e sh -c "gh notify$flags" ;;
     esac
 }
 
