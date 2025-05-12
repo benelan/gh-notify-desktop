@@ -333,11 +333,11 @@ notify_thread() {
     url="$(construct_url "$comment_number" "$repo_slug" "$type" "$number")"
 
     local notif_title="[$repo_slug] $type: $reason"
-    local notif_body="$title\n\n${url}"
+    local notif_body="$title\n${url}"
 
     if _has dunstify; then
         action_response=$(
-            dunstify "$notif_title" "$notif_body" -a "gh-notify-desktop" \
+            dunstify "$notif_title" "$title" -a "gh-notify-desktop" \
                 ${ICON:+-i "$ICON"} \
                 -A "web,open in browser" \
                 -A "read,mark as read" \
