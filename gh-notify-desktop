@@ -197,7 +197,7 @@ get_notifications() {
 
             # show one notification if the count is more than the specified max
             if [[ $(wc -l <<<"$body") -ge $GH_ND_MAX ]]; then
-                dunst_notify_max &
+                notify_max &
             # otherwise, create a desktop notification per github notification
             else
                 process_page "$body"
@@ -240,7 +240,7 @@ process_page() {
             fi
         fi
 
-        dunst_notify_thread "$thread_id" "$thread_state" "$comment_number" "$repo_slug" \
+        notify_thread "$thread_id" "$thread_state" "$comment_number" "$repo_slug" \
             "${modified_type:-$type}" "$number" "$reason" "$title" &
     done <<<"$page"
 }
@@ -269,107 +269,130 @@ process_url() {
     fi
 }
 
-open_in_browser() {
+construct_url() {
     local unhashed_number thread_id="$1" thread_state="$2" comment_number="$1" repo_slug="$2" type="$3" number="$4"
     unhashed_number=$(command tr -d "#" <<<"$number")
     case "$type" in
         CheckSuite)
-            $GH_ND_OPEN_CMD "https://github.com/${repo_slug}/actions" 2>/dev/null &
+            echo "https://github.com/${repo_slug}/actions"
             ;;
         Commit)
-            command gh browse "$number" --repo "$repo_slug"
+            echo "https://github.com/${repo_slug}/commit/${number}"
             ;;
         Discussion)
-            $GH_ND_OPEN_CMD "https://github.com/${repo_slug}/discussions/" 2>/dev/null &
+            echo "https://github.com/${repo_slug}/discussions/"
+            ;;
+        Pre-release | Release)
+            echo "https://github.com/${repo_slug}/releases/tag/${number}"
             ;;
         Issue | PullRequest)
             if [ -z "$comment_number" ] ||
                 [ "$comment_number" = "$unhashed_number" ] ||
                 [ "$comment_number" = "null" ]; then
-                command gh issue view "$number" --web --repo "$repo_slug"
+                echo "https://github.com/${repo_slug}/issues/${unhashed_number}"
             else
-                $GH_ND_OPEN_CMD "https://github.com/${repo_slug}/issues/${unhashed_number}#issuecomment-${comment_number}" 2>/dev/null &
+                echo "https://github.com/${repo_slug}/issues/${unhashed_number}#issuecomment-${comment_number}"
             fi
             ;;
-        Pre-release | Release)
-            command gh release view "$number" --web --repo "$repo_slug"
-            ;;
         *)
-            command gh repo view --web "$repo_slug"
+            echo "https://github.com/${repo_slug}"
             ;;
     esac
 }
 
-dunst_notify_max() {
-    local cli_action action_response terminal flags="" query=""
+notify_max() {
+    local title="GitHub Notifications"
+    local body="There are ${GH_ND_MAX}+ new GitHub notifications"
 
-    # Add dunstify action to open if the gh-notify extension is installed
-    # https://github.com/meiji163/gh-notify
-    if gh extension list 2>/dev/null | grep -q 'gh notify' 2>/dev/null; then
-        cli_action="cli,open in gh-notify"
+    if _has dunstify; then
+        local cli_action action_response terminal flags="" query=""
 
-        # determine which terminal to use for opening gh-notify
-        if _has x-terminal-emulator; then
-            terminal=x-terminal-emulator
-        elif _has wezterm; then
-            terminal=wezterm
-        elif _has alacritty; then
-            terminal=alacritty
-        elif _has kitty; then
-            terminal=kitty
-        elif _has ghostty && [ "$(uname -s)" = "Linux" ]; then
-            terminal=ghostty
-        elif _has foot && [ "$XDG_SESSION_TYPE" = "wayland" ]; then
-            terminal=foot
-        else
-            unset cli_action
+        # Add dunstify action to open if the gh-notify extension is installed
+        # https://github.com/meiji163/gh-notify
+        if gh extension list 2>/dev/null | grep -q 'gh notify' 2>/dev/null; then
+            cli_action="cli,open in gh-notify"
+
+            # determine which terminal to use for opening gh-notify
+            if _has x-terminal-emulator; then
+                terminal=x-terminal-emulator
+            elif _has wezterm; then
+                terminal=wezterm
+            elif _has alacritty; then
+                terminal=alacritty
+            elif _has kitty; then
+                terminal=kitty
+            elif _has ghostty && [ "$(uname -s)" = "Linux" ]; then
+                terminal=ghostty
+            elif _has foot && [ "$XDG_SESSION_TYPE" = "wayland" ]; then
+                terminal=foot
+            else
+                unset cli_action
+            fi
         fi
-    fi
 
-    action_response=$(
-        dunstify "GitHub Notifications" "There are ${GH_ND_MAX}+ new GitHub notifications" \
-            -a "gh-notify-desktop" \
-            ${ICON:+-i "$ICON"} \
-            -A "web,open in browser" \
-            ${cli_action:+-A "$cli_action"}
-    )
+        action_response=$(
+            dunstify "$title" "$body" -a "gh-notify-desktop" ${ICON:+-i "$ICON"} \
+                -A "web,open in browser" ${cli_action:+-A "$cli_action"}
+        )
 
-    if [ "$PARTICIPATING" = true ]; then
-        query+="reason%3Aparticipating&"
-        flags+=" -p"
-    fi
+        if [ "$PARTICIPATING" = true ]; then
+            query+="reason%3Aparticipating&"
+            flags+=" -p"
+        fi
 
-    if [ "$ALL" = false ]; then
-        query+="is%3Aunread"
+        if [ "$ALL" = false ]; then
+            query+="is%3Aunread"
+        else
+            flags+=" -a"
+        fi
+
+        case "$action_response" in
+            web) ${GH_ND_OPEN_CMD} "https://github.com/notifications?query=$query" ;;
+            cli) $terminal -e sh -c "gh notify$flags" ;;
+        esac
+    elif _has notify-send; then
+        notify-send "$title" "$body" -a "gh-notify-desktop" ${ICON:+-i "$ICON"}
+    elif _has osascript; then
+        osascript -e "display notification \"$body\" with title \"$title\""
     else
-        flags+=" -a"
+        die "notification support not found." \
+            "Supports: dunstify, notify-send, osascript"
     fi
-
-    case "$action_response" in
-        web) ${GH_ND_OPEN_CMD} "https://github.com/notifications?query=$query" ;;
-        cli) $terminal -e sh -c "gh notify$flags" ;;
-    esac
 }
 
-dunst_notify_thread() {
-    local cli_action action_response flags thread_id="$1" thread_state="$2" \
+notify_thread() {
+    local cli_action action_response flags url thread_id="$1" thread_state="$2" \
         comment_number="$3" repo_slug="$4" type="$5" number="$6" reason="$7" title="$8"
 
-    action_response=$(
-        dunstify "[$repo_slug] $type: $reason" "$title" -a "gh-notify-desktop" \
-            ${ICON:+-i "$ICON"} \
-            -A "web,open in browser" \
-            -A "read,mark as read" \
-            -A "done,mark as done" \
-            -A "unsub,unsubscribe"
-    )
+    url="$(construct_url "$comment_number" "$repo_slug" "$type" "$number")"
 
-    case "$action_response" in
-        web) open_in_browser "$comment_number" "$repo_slug" "$type" "$number" ;;
-        read) gh_rest_api --method PATCH "/notifications/threads/$thread_id" ;;
-        done) gh_rest_api --method DELETE "/notifications/threads/$thread_id" ;;
-        unsub) gh_rest_api --method DELETE "/notifications/threads/$thread_id/subscription" ;;
-    esac
+    local notif_title="[$repo_slug] $type: $reason"
+    local notif_body="$title\n${url}"
+
+    if _has dunstify; then
+        action_response=$(
+            dunstify "$notif_title" "$title" -a "gh-notify-desktop" \
+                ${ICON:+-i "$ICON"} \
+                -A "web,open in browser" \
+                -A "read,mark as read" \
+                -A "done,mark as done" \
+                -A "unsub,unsubscribe"
+        )
+        case "$action_response" in
+            web) ${GH_ND_OPEN_CMD} "${url}" ;;
+            read) gh_rest_api --method PATCH "/notifications/threads/$thread_id" ;;
+            done) gh_rest_api --method DELETE "/notifications/threads/$thread_id" ;;
+            unsub) gh_rest_api --method DELETE "/notifications/threads/$thread_id/subscription" ;;
+        esac
+    elif _has notify-send; then
+        notify-send "$notif_title" "$notif_body" \
+            -a "gh-notify-desktop" ${ICON:+-i "$ICON"}
+    elif _has osascript; then
+        osascript -e "display notification \"$notif_body\" with title \"$notif_title\""
+    else
+        die "notification support not found." \
+            "Supports: dunstify, notify-send, osascript"
+    fi
 }
 
 while getopts :i:Ccaph opt; do
