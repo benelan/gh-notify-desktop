@@ -2,15 +2,15 @@
 
 A `gh` extension for showing new GitHub notifications on your desktop.
 
-GitHub's notifications endpoint is polled responsibly by using the `Last-Modified` and `X-Poll-Interval` headers, as mentioned in their [api reference](https://docs.github.com/en/rest/activity/notifications?apiVersion=2022-11-28).
+The extension is designed for polling GitHub's notifications endpoint responsibly by using the `Last-Modified` and `X-Poll-Interval` headers, as mentioned in their [API reference](https://docs.github.com/en/rest/activity/notifications?apiVersion=2022-11-28).
 
 ## Installation
 
-1. Install one of the required notification utilities:
+1. Ensure one of the required notification utilities is installed:
 
-- `dunst` - **Recommended** for linux users because the notifications will have [actions](https://dunst-project.org/documentation/#ACTIONS) to mark the thread as "read", "done", or "unsubscribed".
-- `notify-send` - Secondary option for linux users
-- `osascript` - Apple's builtin notification utility (it should already be installed on Macs)
+   - `osascript` - Apple's notification utility, which should already be installed on Macs.
+   - `dunst` - **Recommended** for linux users because the notifications will have [actions](https://dunst-project.org/documentation/#ACTIONS) to mark the thread as "read", "done", or "unsubscribed".
+   - `notify-send` - A more common linux utility that doesn't support the actions.
 
 2. Install the GitHub CLI, for example:
 
@@ -58,7 +58,11 @@ Next, add the following line, which will poll for notifications every two minute
 
 Lastly, save the file and exit your editor.
 
-When using the `-p` flag, you will only be notified for threads where you are a [participant](https://docs.github.com/en/account-and-profile/managing-subscriptions-and-notifications-on-github/setting-up-notifications/configuring-notifications#about-participating-and-watching-notifications).
+When using the `-p` flag, you will only be notified for threads where you are a [participant](https://docs.github.com/en/account-and-profile/managing-subscriptions-and-notifications-on-github/setting-up-notifications/configuring-notifications#about-participating-and-watching-notifications). For more usage information, see:
+
+```sh
+gh notify-desktop -h
+```
 
 ## Contributing
 
