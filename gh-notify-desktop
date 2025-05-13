@@ -51,8 +51,43 @@ if [ -z "$GH_ND_OPEN_CMD" ]; then
 fi
 
 die() {
-    echo "Something went wrong..." >&2
-    exit 1
+    printf "%s\n" "$@" >&2
+    echo "Try -h for usage information." >&2
+}
+
+help() {
+    printf "
+An extension for displaying GitHub notifications on your desktop, designed for
+polling with a task scheduler. For example, using a cronjob:
+    */1 * * * * bash -l -c 'gh notify-desktop'
+
+Usage:
+    gh notify-desktop [-Cchp] [-i <icon_path>]
+
+Flags:
+    -p     Only display notifications for 'participating' threads
+    -i     Path to an image, defaults to GitHub's logo (linux only)
+    -c     Save the unread notifications count when new ones are recieved
+    -C     Save/print the unread count, skip displaying desktop notifications
+    -h     Show this help message.
+
+Environment Variables:
+    GH_ND_DATA_DIR
+        The directory for data storage, including the unread notification count.
+        Defaults to ~/.local/state/gh-notify-desktop/
+    GH_ND_MAX
+        The maximum number of notifications to display at once.
+        Cannot be greater than 50, which is the default.
+    GH_ND_ICON
+        The path to an icon to display in the desktop notifications (linux only).
+        Defaults to GitHub's logo, and is ignored when the -i flag is specified.
+    DEBUG
+        Print debug info, skip poll-interval/last-modified checks, and display
+        desktop notifications even when io streams are a tty.
+
+Source: https://github.com/benelan/gh-notify-desktop
+"
+    exit 0
 }
 
 gh_rest_api() {
@@ -337,15 +372,15 @@ dunst_notify_thread() {
     esac
 }
 
-while getopts i:Ccaph opt; do
+while getopts :i:Ccaph opt; do
     case $opt in
         a) ALL=true ;;
         p) PARTICIPATING=true ;;
         c) COUNT_UNREAD=true ;;
         C) ONLY_COUNT_UNREAD=true ;;
         i) [ -f "$OPTARG" ] && ICON="$OPTARG" ;;
-        h) die ;;
-        *) die ;;
+        h) help ;;
+        *) die "Error: invalid option: '-${OPTARG}'" ;;
     esac
 done
 
