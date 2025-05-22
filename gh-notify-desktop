@@ -313,21 +313,28 @@ notify_max() {
             cli_action="cli,open in gh-notify"
 
             # determine which terminal to use for opening gh-notify
-            if _has x-terminal-emulator; then
-                terminal=x-terminal-emulator
-            elif _has wezterm; then
-                terminal=wezterm
-            elif _has alacritty; then
-                terminal=alacritty
-            elif _has kitty; then
-                terminal=kitty
-            elif _has ghostty && [ "$(uname -s)" = "Linux" ]; then
-                terminal=ghostty
-            elif _has foot && [ "$XDG_SESSION_TYPE" = "wayland" ]; then
-                terminal=foot
-            else
-                unset cli_action
-            fi
+            case "$TERM" in
+                wezterm | foot | alacritty) terminal=$TERM ;;
+                xterm-kitty) terminal=kitty ;;
+                xterm-ghostty) terminal=ghostty ;;
+                *)
+                    if [ -n "$TERMINAL" ]; then
+                        terminal=$TERMINAL
+                    elif _has wezterm; then
+                        terminal=wezterm
+                    elif _has alacritty; then
+                        terminal=alacritty
+                    elif _has kitty; then
+                        terminal=kitty
+                    elif _has ghostty; then
+                        terminal=ghostty
+                    elif _has foot && [ "$XDG_SESSION_TYPE" = "wayland" ]; then
+                        terminal=foot
+                    else
+                        unset cli_action
+                    fi
+                    ;;
+            esac
         fi
 
         action_response=$(
