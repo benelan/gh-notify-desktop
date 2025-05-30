@@ -57,7 +57,7 @@ Next, add the following line, which polls for notifications every two minutes:
 
 Lastly, save the file and exit your editor.
 
-When using the `-p` flag, you will only be notified for threads where you are a [participant]. For more usage information, see:
+When using the `-p` flag, you will only be notified for threads where you are [participating]. For more usage information, see:
 
 ```sh
 gh notify-desktop -h
@@ -71,11 +71,11 @@ Contributions to `gh-notify-desktop` are welcome! Please read [CONTRIBUTING](./C
 
 A special thanks goes out to [`gh-notify`] for its notification parsing logic.
 
-[API reference]: https://docs.github.com/en/rest/activity/notifications?apiVersion=2022-11-28
-[`osascript`]: x-man-page://osascript
-[`dunstify`]: https://github.com/dunst-project/dunst
-[actions]: https://dunst-project.org/documentation/#ACTIONS
-[`notify-send`]: https://gitlab.gnome.org/GNOME/libnotify/
-[instructions]: https://github.com/cli/cli#installation
-[participant]: https://docs.github.com/en/account-and-profile/managing-subscriptions-and-notifications-on-github/setting-up-notifications/configuring-notifications#about-participating-and-watching-notifications
-[`gh-notify`]: https://github.com/meiji163/gh-notify
+[API reference]: https://docs.github.com/en/rest/activity/notifications?apiVersion=2022-11-28 "GitHub /notifications REST endpoint"
+[`osascript`]: x-man-page://osascript "osascript manpage"
+[`dunstify`]: https://github.com/dunst-project/dunst "dunst source code"
+[actions]: https://dunst-project.org/documentation/#ACTIONS "dunst actions documentation"
+[`notify-send`]: https://gitlab.gnome.org/GNOME/libnotify/ "libnotify source code"
+[instructions]: https://github.com/cli/cli#installation "gh installation instructions"
+[participating]: https://docs.github.com/en/get-started/learning-about-github/github-glossary#participating-notifications "GitHub glossary: participating notifications"
+[`gh-notify`]: https://github.com/meiji163/gh-notify "gh-notify source code"
