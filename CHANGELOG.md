@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/benelan/gh-notify-desktop/compare/v0.2.0...v0.3.0) (2025-05-30)
+
+
+### Features
+
+* **dunst:** Improve terminal detection for cli action ([a0b347c](https://github.com/benelan/gh-notify-desktop/commit/a0b347c2a8d0083cf9e6bf9b2073e1e6828f63b5))
+
 ## [0.2.0](https://github.com/benelan/gh-notify-desktop/compare/v0.1.0...v0.2.0) (2025-05-13)
 
 
