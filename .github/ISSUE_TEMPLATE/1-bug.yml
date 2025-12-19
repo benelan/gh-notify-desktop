@@ -23,7 +23,7 @@ body:
     id: expected
     attributes:
       label: Expected Behavior
-      description: What you expected instead, and why?
+      description: What did you expect to happen, and why?
     validations:
       required: true
   - type: textarea
@@ -41,7 +41,7 @@ body:
     id: version
     attributes:
       label: Reproduction Version
-      description: The latest version that reproduces the issue
+      description: The latest version that reproduces the issue (check `gh notify-desktop -v`)
       placeholder: v0.2.0 # x-release-please-version
     validations:
       required: true
