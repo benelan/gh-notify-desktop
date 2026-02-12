@@ -7,7 +7,7 @@
 # Usage: run the extension in a systemd timer or cronjob, for example:
 # */2 * * * * bash -l -c 'gh notify-desktop -p'
 
-GH_ND_VERSION="v0.2.0" # x-release-please-version
+GH_ND_VERSION="v0.3.0" # x-release-please-version
 
 : "${DISPLAY=:0}"
 : "${XAUTHORITY=~/.Xauthority}"

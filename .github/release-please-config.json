@@ -3,7 +3,7 @@
   "packages": {
     ".": {
       "release-type": "simple",
-      "extra-files": [".github/ISSUE_TEMPLATE/1-bug.yml"]
+      "extra-files": ["gh-notify-desktop", ".github/ISSUE_TEMPLATE/1-bug.yml"]
     }
   },
   "plugins": [
