@@ -9,13 +9,19 @@ The extension is designed for polling GitHub's notifications endpoint responsibl
 1. Ensure one of the required notification utilities is installed:
 
    - [`osascript`] - Apple's notification utility that comes pre-installed on Macs.
-   - [`dunstify`] - **Recommended** for linux users because the notifications will have [actions] to mark the thread as "read", "done", or "unsubscribed". For example, install on Ubuntu:
+   - [`terminal-notifier`] - **Recommended** for Mac users because the notifications will have actions to mark the thread as "read", "done", or "unsubscribed". For example, install using Homebrew:
+
+     ```sh
+     brew install terminal-notifier
+     ```
+
+   - [`dunstify`] - **Recommended** for Linux users because the notifications will have [actions]. For example, install on Ubuntu:
 
      ```sh
      sudo apt install dunst
      ```
 
-   - [`notify-send`] - A more common linux utility that doesn't support the actions. For example, install on Ubuntu:
+   - [`notify-send`] - A more common Linux utility that doesn't support the actions. For example, install on Ubuntu:
 
      ```sh
      sudo apt install libnotify4
@@ -73,6 +79,7 @@ A special thanks goes out to [`gh-notify`] for its notification parsing logic.
 
 [API reference]: https://docs.github.com/en/rest/activity/notifications?apiVersion=2022-11-28 "GitHub notifications REST endpoint"
 [`osascript`]: x-man-page://osascript "osascript manpage"
+[`terminal-notifier`]: https://github.com/julienxx/terminal-notifier "terminal-notifier source code"
 [`dunstify`]: https://github.com/dunst-project/dunst "dunst source code"
 [actions]: https://dunst-project.org/documentation/#ACTIONS "dunst actions documentation"
 [`notify-send`]: https://gitlab.gnome.org/GNOME/libnotify/ "libnotify source code"
