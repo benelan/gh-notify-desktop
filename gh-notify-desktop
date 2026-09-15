@@ -309,6 +309,17 @@ notify_max() {
     if _has dunstify; then
         local cli_action action_response terminal flags="" query=""
 
+        if [ "$PARTICIPATING" = true ]; then
+            query+="reason%3Aparticipating&"
+            flags+=" -p"
+        fi
+
+        if [ "$ALL" = false ]; then
+            query+="is%3Aunread"
+        else
+            flags+=" -a"
+        fi
+
         # Add dunstify action to open if the gh-notify extension is installed
         # https://github.com/meiji163/gh-notify
         if gh extension list 2>/dev/null | grep -q 'gh notify' 2>/dev/null; then
@@ -344,23 +355,14 @@ notify_max() {
                 -A "web,open in browser" ${cli_action:+-A "$cli_action"}
         )
 
-        if [ "$PARTICIPATING" = true ]; then
-            query+="reason%3Aparticipating&"
-            flags+=" -p"
-        fi
-
-        if [ "$ALL" = false ]; then
-            query+="is%3Aunread"
-        else
-            flags+=" -a"
-        fi
-
         case "$action_response" in
             web) ${GH_ND_OPEN_CMD} "https://github.com/notifications?query=$query" ;;
             cli) $terminal -e sh -c "gh notify$flags" ;;
         esac
     elif _has notify-send; then
         notify-send "$title" "$body" -a "gh-notify-desktop" ${ICON:+-i "$ICON"}
+    elif _has terminal-notifier; then
+        terminal-notifier -title "$title" -message "$body" -open "https://github.com/notifications?query=$query"
     elif _has osascript; then
         osascript -e "display notification \"$body\" with title \"$title\""
     else
@@ -393,6 +395,20 @@ notify_thread() {
             done) gh_rest_api --method DELETE "/notifications/threads/$thread_id" ;;
             unsub) gh_rest_api --method DELETE "/notifications/threads/$thread_id/subscription" ;;
         esac
+    elif _has terminal-notifier; then
+        action_response=$(
+            terminal-notifier -title "\[$repo_slug] $type: $reason" -message "\\$title" \
+                -action "Open" \
+                -action "Read" \
+                -action "Done" \
+                -action "Unsubscribe"
+        )
+        case "$action_response" in
+            Open) ${GH_ND_OPEN_CMD} "${url}" ;;
+            Read) gh_rest_api --method PATCH "/notifications/threads/$thread_id" ;;
+            Done) gh_rest_api --method DELETE "/notifications/threads/$thread_id" ;;
+            Unsubscribe) gh_rest_api --method DELETE "/notifications/threads/$thread_id/subscription" ;;
+        esac
     elif _has notify-send; then
         notify-send "$notif_title" "$notif_body" \
             -a "gh-notify-desktop" ${ICON:+-i "$ICON"}
@@ -400,7 +416,7 @@ notify_thread() {
         osascript -e "display notification \"$notif_body\" with title \"$notif_title\""
     else
         die "notification support not found." \
-            "Supports: dunstify, notify-send, osascript"
+            "Supports: dunstify, notify-send, terminal-notifier, osascript"
     fi
 }
 
