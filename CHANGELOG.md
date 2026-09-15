@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/benelan/gh-notify-desktop/compare/v0.3.0...v0.4.0) (2026-09-15)
+
+
+### Features
+
+* **mac:** Add support for `terminal-notifier` ([#14](https://github.com/benelan/gh-notify-desktop/issues/14)) ([03bed55](https://github.com/benelan/gh-notify-desktop/commit/03bed554c6db60d62c1601b384c086d3c0f45fd8))
+
 ## [0.3.0](https://github.com/benelan/gh-notify-desktop/compare/v0.2.0...v0.3.0) (2025-12-20)
 
 
