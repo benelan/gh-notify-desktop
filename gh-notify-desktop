@@ -398,6 +398,7 @@ notify_thread() {
     elif _has terminal-notifier; then
         action_response=$(
             terminal-notifier -title "\[$repo_slug] $type: $reason" -message "\\$title" \
+                -open "$url" \
                 -action "Open" \
                 -action "Read" \
                 -action "Done" \
