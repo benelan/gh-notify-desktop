@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/benelan/gh-notify-desktop/compare/v0.4.0...v0.5.0) (2026-09-16)
+
+
+### Features
+
+* **terminal-notifier:** Click notification to open url ([#16](https://github.com/benelan/gh-notify-desktop/issues/16)) ([679a8f6](https://github.com/benelan/gh-notify-desktop/commit/679a8f6e23ea9d573ab77518e4954e7aa6ecd4a1))
+
 ## [0.4.0](https://github.com/benelan/gh-notify-desktop/compare/v0.3.0...v0.4.0) (2026-09-15)
 
 
